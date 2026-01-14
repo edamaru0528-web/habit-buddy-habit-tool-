@@ -2757,9 +2757,9 @@
         const USERS_KEY = 'habitTracker_users';
         const COLORS = ['#00B4B4', '#FF9500', '#8B5CF6', '#EC4899', '#10B981', '#3B82F6', '#F59E0B', '#EF4444'];
 
-        // クラウド同期用設定 (公開のKVストアを使用)
-        const CLOUD_BUCKET = 'htv9_sync_bucket';
-        const CLOUD_API = `https://kvdb.io/A8A9T1QG8z2XQ9f1V9y9y9/${userId}`; // 匿名バケット
+        // JSONbin.io設定
+        const JSONBIN_MASTER_KEY = '$2a$10$9gCdL3y87QxebgxH9Ea1eOT93VPPLvVcj/czCK0PaWCL3WLhOutcC';
+        const JSONBIN_API = 'https://api.jsonbin.io/v3/b';
 
         // 共通データ管理
         function loadData() {
@@ -2780,23 +2780,68 @@
             syncToCloud(data);
         }
 
-        async function syncToCloud(data) {
+        // Bin IDの取得または作成
+        async function getOrCreateBinId() {
+            if (userId === 'default') return null;
+            const cacheKey = `habitTracker_binId_${userId}`;
+            const cachedId = localStorage.getItem(cacheKey);
+            if (cachedId) return cachedId;
+
+            // 新規Bin作成
             try {
-                await fetch(CLOUD_API, {
+                const res = await fetch(JSONBIN_API, {
                     method: 'POST',
-                    body: JSON.stringify(data)
+                    body: JSON.stringify({ habits: [], logs: [] }),
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Master-Key': JSONBIN_MASTER_KEY,
+                        'X-Bin-Name': `habit_user_${userId}`
+                    }
                 });
+                if (res.ok) {
+                    const data = await res.json();
+                    const binId = data.metadata.id;
+                    localStorage.setItem(cacheKey, binId);
+                    console.log('Created new bin:', binId);
+                    return binId;
+                }
+            } catch (e) { console.error('Create bin error:', e); }
+            return null;
+        }
+
+        async function syncToCloud(data) {
+            const binId = await getOrCreateBinId();
+            if (!binId) return;
+            try {
+                await fetch(`${JSONBIN_API}/${binId}`, {
+                    method: 'PUT',
+                    body: JSON.stringify(data),
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Master-Key': JSONBIN_MASTER_KEY
+                    }
+                });
+                console.log('Data synced to cloud');
             } catch (e) { console.error('Cloud Sync Error:', e); }
         }
 
         async function fetchFromCloud() {
             if (userId === 'default') return;
+            const binId = localStorage.getItem(`habitTracker_binId_${userId}`);
+            if (!binId) {
+                // Bin IDがない場合、新規作成を試みる
+                await getOrCreateBinId();
+                return;
+            }
             try {
-                const res = await fetch(CLOUD_API);
+                const res = await fetch(`${JSONBIN_API}/${binId}/latest`, {
+                    headers: { 'X-Master-Key': JSONBIN_MASTER_KEY }
+                });
                 if (res.ok) {
-                    const cloudData = await res.json();
-                    if (cloudData && cloudData.habits) {
-                        localStorage.setItem(STORAGE_KEY, JSON.stringify(cloudData));
+                    const response = await res.json();
+                    if (response.record && response.record.habits) {
+                        localStorage.setItem(STORAGE_KEY, JSON.stringify(response.record));
+                        console.log('Data fetched from cloud');
                     }
                 }
             } catch (e) { console.warn('Cloud Fetch Failed:', e); }

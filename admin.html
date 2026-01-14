@@ -566,7 +566,11 @@
 
     <script>
         const USERS_KEY = 'habitTracker_users';
-        const USERS_CLOUD_API = 'https://kvdb.io/A8A9T1QG8z2XQ9f1V9y9y9/admin_users_list';
+
+        // JSONbin.io設定
+        const JSONBIN_MASTER_KEY = '$2a$10$9gCdL3y87QxebgxH9Ea1eOT93VPPLvVcj/czCK0PaWCL3WLhOutcC';
+        const USERS_BIN_ID = '69678ac9d0ea881f406b5bc5';
+        const JSONBIN_API = 'https://api.jsonbin.io/v3/b';
 
         function loadUsers() {
             const data = localStorage.getItem(USERS_KEY);
@@ -582,22 +586,29 @@
         // ユーザーリストをクラウドに保存
         async function syncUsersToCloud(data) {
             try {
-                await fetch(USERS_CLOUD_API, {
+                await fetch(`${JSONBIN_API}/${USERS_BIN_ID}`, {
                     method: 'PUT',
                     body: JSON.stringify(data),
-                    headers: { 'Content-Type': 'application/json' }
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Master-Key': JSONBIN_MASTER_KEY
+                    }
                 });
+                console.log('Users synced to cloud');
             } catch (e) { console.error('Users Cloud Sync Error:', e); }
         }
 
         // クラウドからユーザーリストを取得
         async function fetchUsersFromCloud() {
             try {
-                const res = await fetch(USERS_CLOUD_API);
+                const res = await fetch(`${JSONBIN_API}/${USERS_BIN_ID}/latest`, {
+                    headers: { 'X-Master-Key': JSONBIN_MASTER_KEY }
+                });
                 if (res.ok) {
-                    const cloudData = await res.json();
-                    if (cloudData && cloudData.users) {
-                        localStorage.setItem(USERS_KEY, JSON.stringify(cloudData));
+                    const response = await res.json();
+                    if (response.record && response.record.users) {
+                        localStorage.setItem(USERS_KEY, JSON.stringify(response.record));
+                        console.log('Users fetched from cloud');
                         return true;
                     }
                 }
@@ -610,8 +621,69 @@
             return data ? JSON.parse(data) : { habits: [], logs: [] };
         }
 
-        const CLOUD_BUCKET = 'htv9_sync_bucket';
-        const getCloudApi = (id) => `https://kvdb.io/A8A9T1QG8z2XQ9f1V9y9y9/${id}`;
+        // 各ユーザーデータ用のクラウドAPI（動的Bin作成）
+        const userBinIds = {};
+
+        async function getOrCreateUserBin(userId) {
+            // キャッシュにあれば返す
+            const cacheKey = `habitTracker_binId_${userId}`;
+            const cachedId = localStorage.getItem(cacheKey) || userBinIds[userId];
+            if (cachedId) return cachedId;
+
+            // 新規Bin作成
+            try {
+                const res = await fetch(JSONBIN_API, {
+                    method: 'POST',
+                    body: JSON.stringify({ habits: [], logs: [] }),
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Master-Key': JSONBIN_MASTER_KEY,
+                        'X-Bin-Name': `habit_user_${userId}`
+                    }
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    const binId = data.metadata.id;
+                    localStorage.setItem(cacheKey, binId);
+                    userBinIds[userId] = binId;
+                    return binId;
+                }
+            } catch (e) { console.error('Create user bin error:', e); }
+            return null;
+        }
+
+        async function syncUserDataToCloud(userId, data) {
+            const binId = await getOrCreateUserBin(userId);
+            if (!binId) return;
+            try {
+                await fetch(`${JSONBIN_API}/${binId}`, {
+                    method: 'PUT',
+                    body: JSON.stringify(data),
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Master-Key': JSONBIN_MASTER_KEY
+                    }
+                });
+            } catch (e) { console.error('User data sync error:', e); }
+        }
+
+        async function fetchUserDataFromCloud(userId) {
+            const binId = localStorage.getItem(`habitTracker_binId_${userId}`) || userBinIds[userId];
+            if (!binId) return null;
+            try {
+                const res = await fetch(`${JSONBIN_API}/${binId}/latest`, {
+                    headers: { 'X-Master-Key': JSONBIN_MASTER_KEY }
+                });
+                if (res.ok) {
+                    const response = await res.json();
+                    if (response.record) {
+                        localStorage.setItem(`habitTracker_${userId}`, JSON.stringify(response.record));
+                        return response.record;
+                    }
+                }
+            } catch (e) { console.warn('User data fetch error:', e); }
+            return null;
+        }
 
         // 達成率ロジック (Ver 8.0 目標履歴 & 一時停止対応)
         function getDateKey(date = new Date()) {
@@ -913,11 +985,19 @@
         let remoteEditModal = null;
 
         async function syncToCloud(userId, data) {
+            const binId = await getOrCreateUserBin(userId);
+            if (!binId) {
+                showToast('クラウド同期に失敗しました');
+                return;
+            }
             try {
-                await fetch(getCloudApi(userId), {
+                await fetch(`${JSONBIN_API}/${binId}`, {
                     method: 'PUT',
                     body: JSON.stringify(data),
-                    headers: { 'Content-Type': 'application/json' }
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Master-Key': JSONBIN_MASTER_KEY
+                    }
                 });
             } catch (e) {
                 console.error('Cloud sync failed:', e);
@@ -926,12 +1006,19 @@
         }
 
         async function fetchLatestData(userId) {
+            const binId = localStorage.getItem(`habitTracker_binId_${userId}`) || userBinIds[userId];
+            if (!binId) {
+                showToast('クラウドデータが見つかりませんでした');
+                return;
+            }
             try {
-                const response = await fetch(getCloudApi(userId));
+                const response = await fetch(`${JSONBIN_API}/${binId}/latest`, {
+                    headers: { 'X-Master-Key': JSONBIN_MASTER_KEY }
+                });
                 if (response.ok) {
-                    const cloudData = await response.json();
-                    if (cloudData) {
-                        localStorage.setItem(`habitTracker_${userId}`, JSON.stringify(cloudData));
+                    const result = await response.json();
+                    if (result.record) {
+                        localStorage.setItem(`habitTracker_${userId}`, JSON.stringify(result.record));
                         showToast(`「${loadUsers().users.find(u => u.id === userId).name}」のデータをクラウドから取得しました`);
                     }
                 } else {
