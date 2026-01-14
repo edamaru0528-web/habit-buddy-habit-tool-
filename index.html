@@ -2760,6 +2760,7 @@
         // JSONbin.io設定
         const JSONBIN_MASTER_KEY = '$2a$10$9gCdL3y87QxebgxH9Ea1eOT93VPPLvVcj/czCK0PaWCL3WLhOutcC';
         const JSONBIN_API = 'https://api.jsonbin.io/v3/b';
+        const USERS_BIN_ID = '69678ac9d0ea881f406b5bc5'; // マスターユーザーリスト用
 
         // 共通データ管理
         function loadData() {
@@ -2780,14 +2781,47 @@
             syncToCloud(data);
         }
 
+        // マスターユーザーリストからBin IDを取得
+        async function fetchUserBinIdFromMaster() {
+            if (userId === 'default') return null;
+            try {
+                const res = await fetch(`${JSONBIN_API}/${USERS_BIN_ID}/latest`, {
+                    headers: { 'X-Master-Key': JSONBIN_MASTER_KEY }
+                });
+                if (res.ok) {
+                    const response = await res.json();
+                    if (response.record && response.record.users) {
+                        // ローカルにもユーザーリストを保存
+                        localStorage.setItem(USERS_KEY, JSON.stringify({ users: response.record.users }));
+
+                        const user = response.record.users.find(u => u.id === userId);
+                        if (user && user.binId) {
+                            localStorage.setItem(`habitTracker_binId_${userId}`, user.binId);
+                            console.log('Got Bin ID from master:', user.binId);
+                            return user.binId;
+                        }
+                    }
+                }
+            } catch (e) { console.warn('Failed to fetch master list:', e); }
+            return null;
+        }
+
         // Bin IDの取得または作成
         async function getOrCreateBinId() {
             if (userId === 'default') return null;
+
+            // ローカルキャッシュをチェック
             const cacheKey = `habitTracker_binId_${userId}`;
-            const cachedId = localStorage.getItem(cacheKey);
+            let cachedId = localStorage.getItem(cacheKey);
+
+            // キャッシュがなければマスターリストから取得を試みる
+            if (!cachedId) {
+                cachedId = await fetchUserBinIdFromMaster();
+            }
+
             if (cachedId) return cachedId;
 
-            // 新規Bin作成
+            // 新規Bin作成（管理者画面で作成されたユーザーでない場合のみ）
             try {
                 const res = await fetch(JSONBIN_API, {
                     method: 'POST',
@@ -2827,12 +2861,18 @@
 
         async function fetchFromCloud() {
             if (userId === 'default') return;
-            const binId = localStorage.getItem(`habitTracker_binId_${userId}`);
+
+            // まずマスターリストからBin IDを取得
+            let binId = localStorage.getItem(`habitTracker_binId_${userId}`);
             if (!binId) {
-                // Bin IDがない場合、新規作成を試みる
-                await getOrCreateBinId();
+                binId = await fetchUserBinIdFromMaster();
+            }
+
+            if (!binId) {
+                console.log('No Bin ID found, this might be a new user');
                 return;
             }
+
             try {
                 const res = await fetch(`${JSONBIN_API}/${binId}/latest`, {
                     headers: { 'X-Master-Key': JSONBIN_MASTER_KEY }
@@ -2849,9 +2889,18 @@
 
         // ユーザー名表示
         let userName = null;
-        function setupUI() {
-            const users = JSON.parse(localStorage.getItem(USERS_KEY) || '{"users":[]}');
-            const user = users.users.find(u => u.id === userId);
+        async function setupUI() {
+            // まずローカルから試す
+            let users = JSON.parse(localStorage.getItem(USERS_KEY) || '{"users":[]}');
+            let user = users.users.find(u => u.id === userId);
+
+            // ローカルになければクラウドから取得
+            if (!user && userId !== 'default') {
+                await fetchUserBinIdFromMaster();
+                users = JSON.parse(localStorage.getItem(USERS_KEY) || '{"users":[]}');
+                user = users.users.find(u => u.id === userId);
+            }
+
             const appTitleEl = document.getElementById('appTitle');
             if (user) {
                 userName = user.name;
@@ -2861,7 +2910,6 @@
                 }
             }
         }
-        setupUI();
 
         // 日付ユーティリティ
         function getDateKey(date = new Date()) {
@@ -4511,7 +4559,9 @@
 
         // 初期化（クラウドデータを待ってから表示）
         async function init() {
-            // まずクラウドからデータ取得を試みる
+            // まずUIセットアップ（ユーザー名取得）
+            await setupUI();
+            // クラウドからデータ取得を試みる
             await fetchFromCloud();
             // データ取得後に表示
             renderHabits();

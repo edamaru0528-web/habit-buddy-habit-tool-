@@ -639,10 +639,26 @@
         const userBinIds = {};
 
         async function getOrCreateUserBin(userId) {
-            // キャッシュにあれば返す
+            // まずマスターリストから取得を試みる
+            const usersData = loadUsers();
+            const user = usersData.users.find(u => u.id === userId);
+            if (user && user.binId) {
+                localStorage.setItem(`habitTracker_binId_${userId}`, user.binId);
+                userBinIds[userId] = user.binId;
+                return user.binId;
+            }
+
+            // ローカルキャッシュにあれば返す
             const cacheKey = `habitTracker_binId_${userId}`;
             const cachedId = localStorage.getItem(cacheKey) || userBinIds[userId];
-            if (cachedId) return cachedId;
+            if (cachedId) {
+                // マスターリストにも保存
+                if (user && !user.binId) {
+                    user.binId = cachedId;
+                    saveUsers(usersData);
+                }
+                return cachedId;
+            }
 
             // 新規Bin作成
             try {
@@ -660,6 +676,13 @@
                     const binId = data.metadata.id;
                     localStorage.setItem(cacheKey, binId);
                     userBinIds[userId] = binId;
+
+                    // マスターリストにもbinIdを保存
+                    if (user) {
+                        user.binId = binId;
+                        saveUsers(usersData);
+                    }
+                    console.log('Created new bin:', binId);
                     return binId;
                 }
             } catch (e) { console.error('Create user bin error:', e); }
