@@ -1060,11 +1060,23 @@
         }
 
         window.syncAllUsers = async () => {
-            showToast('全てのユーザーデータをクラウドから取得中...');
+            showToast('全てのユーザーデータを同期中...');
             const usersData = loadUsers();
+
+            for (const user of usersData.users) {
+                // まずローカルデータをクラウドにプッシュ（データがある場合）
+                const localData = loadUserData(user.id);
+                if (localData && (localData.habits.length > 0 || localData.logs.length > 0)) {
+                    console.log(`Pushing local data to cloud: ${user.name}`);
+                    await syncUserDataToCloud(user.id, localData);
+                }
+            }
+
+            // 次にクラウドからデータを取得
             for (const user of usersData.users) {
                 await fetchLatestData(user.id);
             }
+
             renderUsers();
             showToast('全てのユーザーデータを同期しました');
         };
@@ -1134,6 +1146,7 @@
         };
 
         // 既存ユーザーにBin IDがない場合、自動修復
+        // また、既存のローカルデータをクラウドにプッシュ
         async function repairMissingBinIds() {
             const usersData = loadUsers();
             let needsSync = false;
@@ -1145,6 +1158,13 @@
                     if (binId) {
                         user.binId = binId;
                         needsSync = true;
+
+                        // ローカルにデータがあればクラウドにプッシュ
+                        const localData = loadUserData(user.id);
+                        if (localData && (localData.habits.length > 0 || localData.logs.length > 0)) {
+                            console.log(`Pushing local data to cloud for user: ${user.name}`);
+                            await syncUserDataToCloud(user.id, localData);
+                        }
                     }
                 }
             }
@@ -1178,9 +1198,41 @@
                 // 既存ユーザーのBin ID修復（クラウドデータ取得後に実行）
                 await repairMissingBinIds();
 
+                // ローカルにあるデータをクラウドにプッシュ（自動同期）
+                await pushAllLocalDataToCloud();
+
+                // 全ユーザーの最新データをクラウドから取得
+                await fetchAllUsersDataFromCloud();
+                renderUsers();
+
             } catch (e) {
                 console.error('Init error:', e);
             }
+        }
+
+        // 全ユーザーのローカルデータをクラウドにプッシュ
+        async function pushAllLocalDataToCloud() {
+            const usersData = loadUsers();
+            for (const user of usersData.users) {
+                if (user.binId) {
+                    const localData = loadUserData(user.id);
+                    if (localData && (localData.habits.length > 0 || localData.logs.length > 0)) {
+                        console.log(`Auto-pushing local data to cloud: ${user.name}`);
+                        await syncUserDataToCloud(user.id, localData);
+                    }
+                }
+            }
+        }
+
+        // 全ユーザーのデータをクラウドから取得してローカルを更新
+        async function fetchAllUsersDataFromCloud() {
+            const usersData = loadUsers();
+            for (const user of usersData.users) {
+                if (user.binId) {
+                    await fetchUserDataFromCloud(user.id);
+                }
+            }
+            console.log('All users data fetched from cloud');
         }
 
         // DOMContentLoaded でモーダル要素の参照とイベントハンドラを設定
