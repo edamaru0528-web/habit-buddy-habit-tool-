@@ -1133,6 +1133,28 @@
             }
         };
 
+        // 既存ユーザーにBin IDがない場合、自動修復
+        async function repairMissingBinIds() {
+            const usersData = loadUsers();
+            let needsSync = false;
+
+            for (const user of usersData.users) {
+                if (!user.binId) {
+                    console.log(`Repairing missing binId for user: ${user.name}`);
+                    const binId = await getOrCreateUserBin(user.id);
+                    if (binId) {
+                        user.binId = binId;
+                        needsSync = true;
+                    }
+                }
+            }
+
+            if (needsSync) {
+                saveUsers(usersData);
+                console.log('Bin ID repair completed and synced to cloud');
+            }
+        }
+
         // 初期化（ローカルデータを先に表示、その後クラウドから更新）
         async function init() {
             // まずローカルデータで表示（ユーザー体験向上）
@@ -1152,6 +1174,10 @@
                     }
                     renderUsers();
                 }
+
+                // 既存ユーザーのBin ID修復（クラウドデータ取得後に実行）
+                await repairMissingBinIds();
+
             } catch (e) {
                 console.error('Init error:', e);
             }
