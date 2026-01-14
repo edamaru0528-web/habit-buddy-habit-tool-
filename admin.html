@@ -1110,35 +1110,72 @@
             }
         };
 
-        document.getElementById('remoteEditConfirm').onclick = async () => {
-            const newUserName = document.getElementById('editUserName').value.trim();
-            const newUserStart = document.getElementById('editUserStart').value;
+        // 初期化（ローカルデータを先に表示、その後クラウドから更新）
+        async function init() {
+            // まずローカルデータで表示（ユーザー体験向上）
+            const baseUrlInput = document.getElementById('baseUrlInput');
+            if (baseUrlInput) {
+                baseUrlInput.value = localStorage.getItem('habitTracker_baseUrl') || '';
+            }
+            renderUsers();
 
-            // ユーザー基本情報の更新
-            if (newUserName) {
-                const usersData = loadUsers();
-                const user = usersData.users.find(u => u.id === currentEditingUserId);
-                if (user) {
-                    user.name = newUserName;
-                    user.startDate = newUserStart;
-                    saveUsers(usersData);
+            // クラウドからデータ取得
+            try {
+                const success = await fetchAllDataFromCloud();
+                if (success) {
+                    // クラウドデータで更新
+                    if (baseUrlInput) {
+                        baseUrlInput.value = localStorage.getItem('habitTracker_baseUrl') || '';
+                    }
+                    renderUsers();
                 }
+            } catch (e) {
+                console.error('Init error:', e);
+            }
+        }
+
+        // DOMContentLoaded でモーダル要素の参照とイベントハンドラを設定
+        document.addEventListener('DOMContentLoaded', () => {
+            // モーダル要素の参照設定
+            remoteEditModal = document.getElementById('remoteEditModal');
+
+            const remoteEditConfirmBtn = document.getElementById('remoteEditConfirm');
+            const remoteEditCancelBtn = document.getElementById('remoteEditCancel');
+
+            if (remoteEditConfirmBtn) {
+                remoteEditConfirmBtn.onclick = async () => {
+                    const newUserName = document.getElementById('editUserName').value.trim();
+                    const newUserStart = document.getElementById('editUserStart').value;
+
+                    if (newUserName) {
+                        const usersData = loadUsers();
+                        const user = usersData.users.find(u => u.id === currentEditingUserId);
+                        if (user) {
+                            user.name = newUserName;
+                            user.startDate = newUserStart;
+                            saveUsers(usersData);
+                        }
+                    }
+
+                    const data = loadUserData(currentEditingUserId);
+                    showToast('クラウドに反映中...');
+                    await syncToCloud(currentEditingUserId, data);
+
+                    remoteEditModal.classList.remove('show');
+                    renderUsers();
+                    showToast('保存しました');
+                };
             }
 
-            // 習慣データの同期 (クラウドへプッシュ)
-            const data = loadUserData(currentEditingUserId);
-            showToast('クラウドに反映中...');
-            await syncToCloud(currentEditingUserId, data);
+            if (remoteEditCancelBtn) {
+                remoteEditCancelBtn.onclick = () => remoteEditModal.classList.remove('show');
+            }
 
-            remoteEditModal.classList.remove('show');
-            renderUsers();
-            showToast('保存しました');
-        };
-        document.getElementById('remoteEditCancel').onclick = () => remoteEditModal.classList.remove('show');
+            // 初期化実行
+            init();
+        });
 
-        // DOM読み込み完了後にモーダル参照を初期化
-        remoteEditModal = document.getElementById('remoteEditModal');
-
+        // 公開URL保存機能
         window.saveBaseUrl = () => {
             const url = document.getElementById('baseUrlInput').value.trim();
             if (!url) {
@@ -1152,25 +1189,7 @@
             renderUsers();
         };
 
-        // 初期化（ローカルデータを先に表示、その後クラウドから更新）
-        async function init() {
-            // まずローカルデータで表示（ユーザー体験向上）
-            document.getElementById('baseUrlInput').value = localStorage.getItem('habitTracker_baseUrl') || '';
-            renderUsers();
-
-            // クラウドからデータ取得
-            try {
-                const success = await fetchAllDataFromCloud();
-                if (success) {
-                    // クラウドデータで更新
-                    document.getElementById('baseUrlInput').value = localStorage.getItem('habitTracker_baseUrl') || '';
-                    renderUsers();
-                }
-            } catch (e) {
-                console.error('Init error:', e);
-            }
-        }
-        init();
+        // 定期的なUI更新
         setInterval(renderUsers, 30000);
     </script>
 
