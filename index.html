@@ -2797,23 +2797,23 @@
                     const cloudData = await res.json();
                     if (cloudData && cloudData.habits) {
                         localStorage.setItem(STORAGE_KEY, JSON.stringify(cloudData));
-                        renderHabits();
                     }
                 }
             } catch (e) { console.warn('Cloud Fetch Failed:', e); }
         }
 
-        // 初期化時にクラウドから最新データを取得
-        fetchFromCloud();
-
         // ユーザー名表示
+        let userName = null;
         function setupUI() {
             const users = JSON.parse(localStorage.getItem(USERS_KEY) || '{"users":[]}');
             const user = users.users.find(u => u.id === userId);
             const appTitleEl = document.getElementById('appTitle');
-            if (user && appTitleEl) {
-                appTitleEl.textContent = `${user.name}さんの習慣トラッカー`;
-                document.title = `${user.name}さんの習慣トラッカー`;
+            if (user) {
+                userName = user.name;
+                if (appTitleEl) {
+                    appTitleEl.textContent = `${userName}さんの習慣トラッカー`;
+                    document.title = `${userName}さんの習慣トラッカー`;
+                }
             }
         }
         setupUI();
@@ -3079,7 +3079,7 @@
             if (habitsView && !habitsView.classList.contains('hidden')) {
                 const appTitle = document.getElementById('appTitle');
                 if (appTitle) {
-                    appTitle.textContent = (userId === 'default' ? '習慣トラッカー' : `${userId}さんの習慣トラッカー`);
+                    appTitle.textContent = (!userName ? '習慣トラッカー' : `${userName}さんの習慣トラッカー`);
                 }
             }
 
@@ -3203,7 +3203,7 @@
             const appTitle = document.getElementById('appTitle');
             if (appTitle) {
                 if (view === 'habits') {
-                    appTitle.textContent = (userId === 'default' ? '習慣トラッカー' : `${userId}さんの習慣トラッカー`);
+                    appTitle.textContent = (!userName ? '習慣トラッカー' : `${userName}さんの習慣トラッカー`);
                 } else if (view === 'details') {
                     appTitle.textContent = '活動履歴';
                 } else if (view === 'month') {
@@ -4464,8 +4464,14 @@
             setTimeout(() => bubble.classList.remove('show'), 3000);
         };
 
-        // 初期化
-        renderHabits();
+        // 初期化（クラウドデータを待ってから表示）
+        async function init() {
+            // まずクラウドからデータ取得を試みる
+            await fetchFromCloud();
+            // データ取得後に表示
+            renderHabits();
+        }
+        init();
         if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
     </script>
 

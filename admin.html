@@ -202,6 +202,7 @@
 
         .menu-container {
             position: relative;
+            z-index: 10;
         }
 
         .menu-btn {
@@ -565,12 +566,44 @@
 
     <script>
         const USERS_KEY = 'habitTracker_users';
+        const USERS_CLOUD_API = 'https://kvdb.io/A8A9T1QG8z2XQ9f1V9y9y9/admin_users_list';
 
         function loadUsers() {
             const data = localStorage.getItem(USERS_KEY);
             return data ? JSON.parse(data) : { users: [] };
         }
-        function saveUsers(data) { localStorage.setItem(USERS_KEY, JSON.stringify(data)); }
+
+        function saveUsers(data) {
+            localStorage.setItem(USERS_KEY, JSON.stringify(data));
+            // クラウドにも同期
+            syncUsersToCloud(data);
+        }
+
+        // ユーザーリストをクラウドに保存
+        async function syncUsersToCloud(data) {
+            try {
+                await fetch(USERS_CLOUD_API, {
+                    method: 'PUT',
+                    body: JSON.stringify(data),
+                    headers: { 'Content-Type': 'application/json' }
+                });
+            } catch (e) { console.error('Users Cloud Sync Error:', e); }
+        }
+
+        // クラウドからユーザーリストを取得
+        async function fetchUsersFromCloud() {
+            try {
+                const res = await fetch(USERS_CLOUD_API);
+                if (res.ok) {
+                    const cloudData = await res.json();
+                    if (cloudData && cloudData.users) {
+                        localStorage.setItem(USERS_KEY, JSON.stringify(cloudData));
+                        return true;
+                    }
+                }
+            } catch (e) { console.warn('Users Cloud Fetch Failed:', e); }
+            return false;
+        }
 
         function loadUserData(userId) {
             const data = localStorage.getItem(`habitTracker_${userId}`);
@@ -700,24 +733,57 @@
         window.toggleMenu = (id) => {
             const menu = document.getElementById(`menu-${id}`);
             const isShowing = menu.classList.contains('show');
+
+            // 全てのメニューを閉じて、カードのz-indexをリセット
             document.querySelectorAll('.dropdown-menu').forEach(m => m.classList.remove('show'));
-            if (!isShowing) menu.classList.add('show');
+            document.querySelectorAll('.user-card').forEach(c => c.style.zIndex = '');
+
+            if (!isShowing) {
+                menu.classList.add('show');
+                // 親カードのz-indexを上げる
+                const card = menu.closest('.user-card');
+                if (card) card.style.zIndex = '100';
+            }
         };
 
         // どこかを叩いたらメニューを閉じる
         window.onclick = (e) => {
             if (!e.target.matches('.menu-btn')) {
                 document.querySelectorAll('.dropdown-menu').forEach(m => m.classList.remove('show'));
+                document.querySelectorAll('.user-card').forEach(c => c.style.zIndex = '');
             }
         };
 
         window.showShareOptions = (url, name) => {
-            // シンプルに共有（既存の仕組みを活用）
-            if (navigator.share) {
-                shareUrl(url, name);
-            } else {
-                showQR(url, name);
+            // 公開URLが設定されているかチェック
+            const savedBaseUrl = localStorage.getItem('habitTracker_baseUrl');
+            if (!savedBaseUrl || url.startsWith('file://')) {
+                showToast('⚠️ 先に公開URL設定を行ってください');
+                // 画面上部にスクロール
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+                document.getElementById('baseUrlInput').focus();
+                return;
             }
+
+            // リンクコピー用モーダルを表示
+            const linkModal = document.getElementById('linkModal');
+            const linkUrlDisplay = document.getElementById('linkUrlDisplay');
+            const linkTitle = document.getElementById('linkTitle');
+
+            linkTitle.textContent = `${name}さんの共有リンク`;
+            linkUrlDisplay.value = url;
+            linkModal.classList.add('show');
+        };
+
+        window.copyLinkUrl = () => {
+            const linkUrlDisplay = document.getElementById('linkUrlDisplay');
+            linkUrlDisplay.select();
+            document.execCommand('copy');
+            showToast('リンクをコピーしました');
+        };
+
+        window.closeLinkModal = () => {
+            document.getElementById('linkModal').classList.remove('show');
         };
 
         function shareUrl(url, name) {
@@ -994,7 +1060,12 @@
         // 初期表示時に設定値を反映
         document.getElementById('baseUrlInput').value = localStorage.getItem('habitTracker_baseUrl') || '';
 
-        renderUsers();
+        // 初期化（クラウドからユーザーリスト取得を待つ）
+        async function init() {
+            await fetchUsersFromCloud();
+            renderUsers();
+        }
+        init();
         setInterval(renderUsers, 30000);
     </script>
 
@@ -1007,6 +1078,22 @@
             <div style="text-align:right;">
                 <button class="action-btn"
                     onclick="document.getElementById('qrModal').classList.remove('show')">閉じる</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- リンクコピー用モーダル -->
+    <div class="modal-overlay" id="linkModal">
+        <div class="modal">
+            <h3 id="linkTitle">🔗 共有リンク</h3>
+            <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:12px;">下のリンクをコピーして共有してください</p>
+            <div style="display:flex; gap:8px; margin-bottom:20px;">
+                <input type="text" id="linkUrlDisplay" class="modal-input" style="flex:1;" readonly>
+                <button class="btn-3d btn-primary" onclick="copyLinkUrl()"
+                    style="font-size:0.9rem; padding:10px 16px;">コピー</button>
+            </div>
+            <div style="text-align:right;">
+                <button class="action-btn" onclick="closeLinkModal()">閉じる</button>
             </div>
         </div>
     </div>
