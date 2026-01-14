@@ -566,6 +566,7 @@
 
     <script>
         const USERS_KEY = 'habitTracker_users';
+        const BASE_URL_KEY = 'habitTracker_baseUrl';
 
         // JSONbin.io設定
         const JSONBIN_MASTER_KEY = '$2a$10$9gCdL3y87QxebgxH9Ea1eOT93VPPLvVcj/czCK0PaWCL3WLhOutcC';
@@ -579,40 +580,53 @@
 
         function saveUsers(data) {
             localStorage.setItem(USERS_KEY, JSON.stringify(data));
-            // クラウドにも同期
-            syncUsersToCloud(data);
+            // クラウドにも同期（公開URLも含める）
+            syncAllDataToCloud();
         }
 
-        // ユーザーリストをクラウドに保存
-        async function syncUsersToCloud(data) {
+        // 全データ（ユーザーリスト + 公開URL）をクラウドに保存
+        async function syncAllDataToCloud() {
             try {
+                const usersData = loadUsers();
+                const baseUrl = localStorage.getItem(BASE_URL_KEY) || '';
+                const allData = {
+                    users: usersData.users,
+                    baseUrl: baseUrl
+                };
                 await fetch(`${JSONBIN_API}/${USERS_BIN_ID}`, {
                     method: 'PUT',
-                    body: JSON.stringify(data),
+                    body: JSON.stringify(allData),
                     headers: {
                         'Content-Type': 'application/json',
                         'X-Master-Key': JSONBIN_MASTER_KEY
                     }
                 });
-                console.log('Users synced to cloud');
-            } catch (e) { console.error('Users Cloud Sync Error:', e); }
+                console.log('All data synced to cloud');
+            } catch (e) { console.error('Cloud Sync Error:', e); }
         }
 
-        // クラウドからユーザーリストを取得
-        async function fetchUsersFromCloud() {
+        // クラウドから全データを取得
+        async function fetchAllDataFromCloud() {
             try {
                 const res = await fetch(`${JSONBIN_API}/${USERS_BIN_ID}/latest`, {
                     headers: { 'X-Master-Key': JSONBIN_MASTER_KEY }
                 });
                 if (res.ok) {
                     const response = await res.json();
-                    if (response.record && response.record.users) {
-                        localStorage.setItem(USERS_KEY, JSON.stringify(response.record));
-                        console.log('Users fetched from cloud');
+                    if (response.record) {
+                        // ユーザーリストを保存
+                        if (response.record.users) {
+                            localStorage.setItem(USERS_KEY, JSON.stringify({ users: response.record.users }));
+                        }
+                        // 公開URLを保存
+                        if (response.record.baseUrl) {
+                            localStorage.setItem(BASE_URL_KEY, response.record.baseUrl);
+                        }
+                        console.log('All data fetched from cloud');
                         return true;
                     }
                 }
-            } catch (e) { console.warn('Users Cloud Fetch Failed:', e); }
+            } catch (e) { console.warn('Cloud Fetch Failed:', e); }
             return false;
         }
 
@@ -687,31 +701,25 @@
 
         // 達成率ロジック (Ver 8.0 目標履歴 & 一時停止対応)
         function getDateKey(date = new Date()) {
-            return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+            return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2,
+                '0')}`;
         }
         function getGoalAtDate(habit, dateKey) {
             if (!habit.goalHistory) return habit.goal || 5;
             const history = [...habit.goalHistory].sort((a, b) => new Date(a.date) - new Date(b.date));
             let activeGoal = history[0].value;
             for (const entry of history) {
-                if (entry.date <= dateKey) {
-                    activeGoal = entry.value;
-                } else {
-                    break;
-                }
-            }
-            return activeGoal;
-        }
-        function getDailyPct(data, dateKey) {
-            const activeHabits = data.habits.filter(h => !h.isPaused && (h.startDate || '2026-01-01') <= dateKey);
-            if (activeHabits.length === 0) return 0;
-            let total = 0;
-            activeHabits.forEach(h => {
-                const dayLogs = data.logs.filter(l => l.habit === h.name && l.timestamp.split('T')[0] === dateKey);
-                const current = dayLogs.reduce((sum, l) => sum + (l.value || 1), 0);
-                const goal = getGoalAtDate(h, dateKey);
-                total += Math.min(1, current / goal);
-            });
+                if (entry.date <= dateKey) { activeGoal = entry.value; } else { break; }
+            } return activeGoal;
+        } function
+            getDailyPct(data, dateKey) {
+            const activeHabits = data.habits.filter(h => !h.isPaused && (h.startDate ||
+                '2026-01-01') <= dateKey); if (activeHabits.length === 0) return 0; let total = 0; activeHabits.forEach(h => {
+                    const dayLogs = data.logs.filter(l => l.habit === h.name && l.timestamp.split('T')[0] === dateKey);
+                    const current = dayLogs.reduce((sum, l) => sum + (l.value || 1), 0);
+                    const goal = getGoalAtDate(h, dateKey);
+                    total += Math.min(1, current / goal);
+                });
             return Math.round((total / activeHabits.length) * 100);
         }
 
@@ -736,13 +744,14 @@
             const offset = c - (pct / 100) * c;
             const color = pct >= 80 ? 'var(--success)' : pct >= 50 ? 'var(--warning)' : 'var(--danger)';
             return `
-                <div class="progress-ring">
-                    <svg width="60" height="60">
-                        <circle class="bg" cx="30" cy="30" r="${r}"/>
-                        <circle class="fg" cx="30" cy="30" r="${r}" stroke-dasharray="${c}" stroke-dashoffset="${offset}" style="stroke: ${color}"/>
-                    </svg>
-                    <span class="pct" style="color: ${color}">${pct}%</span>
-                </div>`;
+            <div class="progress-ring">
+                <svg width="60" height="60">
+                    <circle class="bg" cx="30" cy="30" r="${r}" />
+                    <circle class="fg" cx="30" cy="30" r="${r}" stroke-dasharray="${c}" stroke-dashoffset="${offset}"
+                        style="stroke: ${color}" />
+                </svg>
+                <span class="pct" style="color: ${color}">${pct}%</span>
+            </div>`;
         }
 
         function renderUsers() {
@@ -755,13 +764,14 @@
 
             // 公開URL設定を取得、なければ現在のURLを使用
             const savedBaseUrl = localStorage.getItem('habitTracker_baseUrl');
-            const baseUrl = savedBaseUrl ? (savedBaseUrl.endsWith('/') ? savedBaseUrl + 'index.html' : savedBaseUrl + '/index.html') : new URL('index.html', window.location.href).href;
+            const baseUrl = savedBaseUrl ? (savedBaseUrl.endsWith('/') ? savedBaseUrl + 'index.html' : savedBaseUrl +
+                '/index.html') : new URL('index.html', window.location.href).href;
             const today = getDateKey();
 
             userList.innerHTML = `
-                <div style="margin-bottom:16px; text-align:right;">
-                    <button class="action-btn sync" onclick="syncAllUsers()">🔄 全て同期 (クラウドから取得)</button>
-                </div>
+            <div style="margin-bottom:16px; text-align:right;">
+                <button class="action-btn sync" onclick="syncAllUsers()">🔄 全て同期 (クラウドから取得)</button>
+            </div>
             ` + usersData.users.map(user => {
                 const userData = loadUserData(user.id);
                 const pct = getDailyPct(userData, today);
@@ -778,27 +788,29 @@
                 const publicUrl = `${baseUrl}?user=${user.id}`;
 
                 return `
-                    <div class="user-card" onclick="window.open('${localUrl}', '_blank')">
-                        <div class="user-info">
-                            <div class="user-name" style="margin-bottom:8px;">${user.name}</div>
-                            <div class="user-stats-container">
-                                <div class="user-stat-row">経過日数: <b>${elapsedDays}日</b></div>
-                                <div class="user-stat-row">継続日数: <b>${reportedDays}日</b></div>
-                            </div>
+            <div class="user-card" onclick="window.open('${localUrl}', '_blank')">
+                <div class="user-info">
+                    <div class="user-name" style="margin-bottom:8px;">${user.name}</div>
+                    <div class="user-stats-container">
+                        <div class="user-stat-row">経過日数: <b>${elapsedDays}日</b></div>
+                        <div class="user-stat-row">継続日数: <b>${reportedDays}日</b></div>
+                    </div>
+                </div>
+                <div class="user-stats">
+                    ${createProgressRing(pct)}
+                </div>
+                <div class="menu-container" onclick="event.stopPropagation()">
+                    <button class="menu-btn" onclick="toggleMenu('${user.id}')">⋮</button>
+                    <div class="dropdown-menu" id="menu-${user.id}">
+                        <div class="dropdown-item" onclick="openRemoteEdit('${user.id}')">✏️ 編集</div>
+                        <div class="dropdown-item" onclick="window.open('${localUrl}', '_blank')">👁️ 表示</div>
+                        <div class="dropdown-item" onclick="showShareOptions('${publicUrl}', '${user.name}')">🔗 共有リンク発行
                         </div>
-                        <div class="user-stats">
-                            ${createProgressRing(pct)}
-                        </div>
-                        <div class="menu-container" onclick="event.stopPropagation()">
-                            <button class="menu-btn" onclick="toggleMenu('${user.id}')">⋮</button>
-                            <div class="dropdown-menu" id="menu-${user.id}">
-                                <div class="dropdown-item" onclick="openRemoteEdit('${user.id}')">✏️ 編集</div>
-                                <div class="dropdown-item" onclick="window.open('${localUrl}', '_blank')">👁️ 表示</div>
-                                <div class="dropdown-item" onclick="showShareOptions('${publicUrl}', '${user.name}')">🔗 共有リンク発行</div>
-                                <div class="dropdown-item delete" onclick="confirmDeleteUser('${user.id}', '${user.name}')">🗑️ 削除</div>
-                            </div>
-                        </div>
-                    </div>`;
+                        <div class="dropdown-item delete" onclick="confirmDeleteUser('${user.id}', '${user.name}')">🗑️
+                            削除</div>
+                    </div>
+                </div>
+            </div>`;
             }).join('');
         }
 
@@ -925,19 +937,13 @@
         document.getElementById('exportJsonBtn').onclick = () => {
             const allData = {};
             for (let i = 0; i < localStorage.length; i++) {
-                const key = localStorage.key(i);
-                if (key.startsWith('habitTracker_')) {
-                    allData[key] = JSON.parse(localStorage.getItem(key));
-                }
-            }
-            const blob = new Blob([JSON.stringify(allData, null, 2)], { type: 'application/json' });
-            const link = document.createElement('a');
-            link.href = URL.createObjectURL(blob);
-            link.download = `HabitTracker_Backup_${getDateKey()}.json`;
-            link.click();
-            showToast('JSONファイルを保存しました');
+                const key = localStorage.key(i); if
+                    (key.startsWith('habitTracker_')) { allData[key] = JSON.parse(localStorage.getItem(key)); }
+            } const
+                blob = new Blob([JSON.stringify(allData, null, 2)], { type: 'application/json' }); const
+                    link = document.createElement('a'); link.href = URL.createObjectURL(blob);
+            link.download = `HabitTracker_Backup_${getDateKey()}.json`; link.click(); showToast('JSONファイルを保存しました');
         };
-
         document.getElementById('importFile').onchange = (e) => {
             const file = e.target.files[0];
             if (!file) return;
@@ -1085,10 +1091,10 @@
                 list.innerHTML = '<p style="padding:10px;">習慣がありません</p>';
             } else {
                 list.innerHTML = data.habits.map((h, i) => `
-                    <div class="habit-edit-item">
-                        <input type="text" value="${h.name}" onchange="updateRemoteHabitName(${i}, this.value)">
-                        <span style="font-size:0.8rem; opacity:0.6;">(${h.type})</span>
-                    </div>
+                <div class="habit-edit-item">
+                    <input type="text" value="${h.name}" onchange="updateRemoteHabitName(${i}, this.value)">
+                    <span style="font-size:0.8rem; opacity:0.6;">(${h.type})</span>
+                </div>
                 `).join('');
             }
             remoteEditModal.classList.add('show');
@@ -1140,17 +1146,29 @@
                 return;
             }
             localStorage.setItem('habitTracker_baseUrl', url);
+            // クラウドにも同期
+            syncAllDataToCloud();
             showToast('公開URLを設定しました');
             renderUsers();
         };
 
-        // 初期表示時に設定値を反映
-        document.getElementById('baseUrlInput').value = localStorage.getItem('habitTracker_baseUrl') || '';
-
-        // 初期化（クラウドからユーザーリスト取得を待つ）
+        // 初期化（ローカルデータを先に表示、その後クラウドから更新）
         async function init() {
-            await fetchUsersFromCloud();
+            // まずローカルデータで表示（ユーザー体験向上）
+            document.getElementById('baseUrlInput').value = localStorage.getItem('habitTracker_baseUrl') || '';
             renderUsers();
+
+            // クラウドからデータ取得
+            try {
+                const success = await fetchAllDataFromCloud();
+                if (success) {
+                    // クラウドデータで更新
+                    document.getElementById('baseUrlInput').value = localStorage.getItem('habitTracker_baseUrl') || '';
+                    renderUsers();
+                }
+            } catch (e) {
+                console.error('Init error:', e);
+            }
         }
         init();
         setInterval(renderUsers, 30000);
@@ -1173,7 +1191,8 @@
     <div class="modal-overlay" id="linkModal">
         <div class="modal">
             <h3 id="linkTitle">🔗 共有リンク</h3>
-            <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:12px;">下のリンクをコピーして共有してください</p>
+            <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:12px;">下のリンクをコピーして共有してください
+            </p>
             <div style="display:flex; gap:8px; margin-bottom:20px;">
                 <input type="text" id="linkUrlDisplay" class="modal-input" style="flex:1;" readonly>
                 <button class="btn-3d btn-primary" onclick="copyLinkUrl()"
@@ -1204,7 +1223,8 @@
             <div id="remoteHabitList" style="max-height:300px; overflow-y:auto; margin-bottom:20px;"></div>
 
             <div style="border-top:2px solid var(--border); margin:20px 0; padding-top:20px;">
-                <label style="font-size:0.8rem; font-weight:700; display:block; margin-bottom:8px;">➕ 新規習慣を追加</label>
+                <label style="font-size:0.8rem; font-weight:700; display:block; margin-bottom:8px;">➕
+                    新規習慣を追加</label>
                 <div style="display:flex; gap:8px;">
                     <input type="text" id="newHabitName" placeholder="習慣名..." class="modal-input" style="flex:1;">
                     <select id="newHabitType" class="modal-select" style="width:100px;">
