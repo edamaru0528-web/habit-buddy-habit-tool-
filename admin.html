@@ -617,6 +617,14 @@
                         // ユーザーリストを保存
                         if (response.record.users) {
                             localStorage.setItem(USERS_KEY, JSON.stringify({ users: response.record.users }));
+
+                            // 各ユーザーのBin IDをローカルストレージにも保存
+                            for (const user of response.record.users) {
+                                if (user.binId) {
+                                    localStorage.setItem(`habitTracker_binId_${user.id}`, user.binId);
+                                    userBinIds[user.id] = user.binId;
+                                }
+                            }
                         }
                         // 公開URLを保存
                         if (response.record.baseUrl) {
