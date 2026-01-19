@@ -4235,47 +4235,54 @@
             const firstDay = new Date(analysisYear, analysisMonth, 1);
             const lastDay = new Date(analysisYear, analysisMonth + 1, 0);
 
-            // 曜日別達成率（記録がある日数のみで計算）
+            // 今日の日付を取得（まだ来ていない日は計算に含めない）
+            const currentDate = new Date();
+            currentDate.setHours(0, 0, 0, 0);
+
+            // 計算の終了日は、月末と今日の小さい方
+            const calcEndDay = lastDay < currentDate ? lastDay : (currentDate.getFullYear() === analysisYear && currentDate.getMonth() === analysisMonth ? currentDate : lastDay);
+
+            // 曜日別達成率（記録がない日は0%として計算）
             const weekdays = [0, 0, 0, 0, 0, 0, 0], weekCounts = [0, 0, 0, 0, 0, 0, 0];
 
-            // 選択月のログがある日付を抽出
+            // 選択月のすべての日付を対象に計算
             const monthKey = `${analysisYear}-${String(analysisMonth + 1).padStart(2, '0')}`;
-            const datesWithLogs = [...new Set(
-                data.logs
-                    .filter(l => l.timestamp.startsWith(monthKey))
-                    .map(l => l.timestamp.split('T')[0])
-            )];
 
-            datesWithLogs.forEach(dk => {
-                const d = new Date(dk);
+            // 月初から計算終了日までを対象に計算
+            for (let d = new Date(firstDay); d <= calcEndDay; d.setDate(d.getDate() + 1)) {
+                const dk = d.toISOString().split('T')[0];
+                const dayOfWeek = d.getDay();
                 const pct = getDailyProgress(data, dk);
-                if (pct > 0) { // 記録がある日のみ
-                    weekdays[d.getDay()] += pct;
-                    weekCounts[d.getDay()]++;
-                }
-            });
+
+                // 記録がない日は0%として計算
+                weekdays[dayOfWeek] += pct;
+                weekCounts[dayOfWeek]++;
+            }
             const avgW = weekdays.map((v, i) => weekCounts[i] > 0 ? Math.round(v / weekCounts[i]) : 0);
 
-            // 項目別達成率（記録がある日数のみで計算）
+            // 項目別達成率（記録がない日は0%として計算）
             const activeHabits = data.habits.filter(h => !h.isPaused);
             const habitLabels = activeHabits.map(h => h.name);
-            const habitRates = activeHabits.map(h => {
-                // この習慣のログがある日付を抽出（選択月内）
-                const habitDates = [...new Set(
-                    data.logs
-                        .filter(l => l.habit === h.name && l.timestamp.startsWith(monthKey))
-                        .map(l => l.timestamp.split('T')[0])
-                )];
 
-                let achieved = 0, total = 0;
-                habitDates.forEach(dk => {
+            const habitRates = activeHabits.map(h => {
+                // 習慣の開始日から計算終了日までの日数を計算
+                const habitStartDate = new Date(h.startDate);
+                const effectiveStartDate = habitStartDate > firstDay ? habitStartDate : firstDay;
+
+                // 対象日数を計算
+                let targetDays = 0;
+                let achieved = 0;
+
+                for (let d = new Date(effectiveStartDate); d <= calcEndDay; d.setDate(d.getDate() + 1)) {
+                    const dk = d.toISOString().split('T')[0];
                     if (dk >= h.startDate) {
-                        total++;
+                        targetDays++;
                         const status = getHabitStatusAtDate(h, data.logs, dk);
                         if (status.isAchieved) achieved++;
                     }
-                });
-                return total > 0 ? Math.round((achieved / total) * 100) : 0;
+                }
+
+                return targetDays > 0 ? Math.round((achieved / targetDays) * 100) : 0;
             });
             const habitColors = activeHabits.map((h, i) => h.color || COLORS[i % COLORS.length]);
 
