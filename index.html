@@ -4242,25 +4242,31 @@
             // 計算の終了日は、月末と今日の小さい方
             const calcEndDay = lastDay < currentDate ? lastDay : (currentDate.getFullYear() === analysisYear && currentDate.getMonth() === analysisMonth ? currentDate : lastDay);
 
-            // 曜日別達成率（記録がない日は0%として計算）
-            const weekdays = [0, 0, 0, 0, 0, 0, 0], weekCounts = [0, 0, 0, 0, 0, 0, 0];
+            // 曜日別達成率（各日の達成率の平均）
+            // 各曜日の { total: 合計達成率, count: 日数 } を計算
+            const weekdayStats = [0, 1, 2, 3, 4, 5, 6].map(() => ({ total: 0, count: 0 }));
 
             // 選択月のすべての日付を対象に計算
             const monthKey = `${analysisYear}-${String(analysisMonth + 1).padStart(2, '0')}`;
 
-            // 月初から計算終了日までを対象に計算
+            // 月初から計算終了日（当日）までを対象に計算
             for (let d = new Date(firstDay); d <= calcEndDay; d.setDate(d.getDate() + 1)) {
                 const dk = d.toISOString().split('T')[0];
                 const dayOfWeek = d.getDay();
+
+                // カレンダーに表示される達成率を取得（getDailyProgressを使用）
+                // 達成していない日は0%、一時停止中でも0%としてカウント
                 const pct = getDailyProgress(data, dk);
 
-                // 記録がない日は0%として計算
-                weekdays[dayOfWeek] += pct;
-                weekCounts[dayOfWeek]++;
+                // 全日を対象にカウント
+                weekdayStats[dayOfWeek].total += pct;
+                weekdayStats[dayOfWeek].count++;
             }
-            const avgW = weekdays.map((v, i) => weekCounts[i] > 0 ? Math.round(v / weekCounts[i]) : 0);
 
-            // 項目別達成率（記録がない日は0%として計算）
+            // 達成率を計算（日数で割る、日数がない場合は0%）
+            const avgW = weekdayStats.map(s => s.count > 0 ? Math.round(s.total / s.count) : 0);
+
+            // 項目別達成率（記録がない日は0%として計算、一時停止を考慮）
             const activeHabits = data.habits.filter(h => !h.isPaused);
             const habitLabels = activeHabits.map(h => h.name);
 
@@ -4269,11 +4275,21 @@
                 const habitStartDate = new Date(h.startDate);
                 const effectiveStartDate = habitStartDate > firstDay ? habitStartDate : firstDay;
 
+                // 一時停止日を考慮した終了日
+                let effectiveEndDate = calcEndDay;
+                if (h.pausedDate) {
+                    const pausedDate = new Date(h.pausedDate);
+                    if (pausedDate <= calcEndDay) {
+                        effectiveEndDate = new Date(pausedDate);
+                        effectiveEndDate.setDate(effectiveEndDate.getDate() - 1); // 停止日の前日まで
+                    }
+                }
+
                 // 対象日数を計算
                 let targetDays = 0;
                 let achieved = 0;
 
-                for (let d = new Date(effectiveStartDate); d <= calcEndDay; d.setDate(d.getDate() + 1)) {
+                for (let d = new Date(effectiveStartDate); d <= effectiveEndDate; d.setDate(d.getDate() + 1)) {
                     const dk = d.toISOString().split('T')[0];
                     if (dk >= h.startDate) {
                         targetDays++;
