@@ -1407,12 +1407,17 @@
                 const plan = planSelect.value || '3months';
 
                 const usersData = loadUsers();
-                usersData.users.push({
-                    id: Math.random().toString(36).substr(2, 8),
+                const newUserId = Math.random().toString(36).substr(2, 8);
+
+                // 新規ユーザーを追加（binIdは後で設定）
+                const newUser = {
+                    id: newUserId,
                     name,
                     startDate,
-                    plan
-                });
+                    plan,
+                    binId: null // 一旦nullで作成
+                };
+                usersData.users.push(newUser);
                 saveUsers(usersData);
 
                 // フォームをリセット
@@ -1422,6 +1427,39 @@
 
                 renderUsers();
                 showToast(`「${name}」を作成しました（${getPlanLabel(plan)}）`);
+
+                // 非同期でBin IDを生成してマスターリストに保存
+                (async () => {
+                    try {
+                        const res = await fetch(JSONBIN_API, {
+                            method: 'POST',
+                            body: JSON.stringify({ habits: [], logs: [] }),
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-Master-Key': JSONBIN_MASTER_KEY,
+                                'X-Bin-Name': `habit_user_${newUserId}`
+                            }
+                        });
+                        if (res.ok) {
+                            const data = await res.json();
+                            const binId = data.metadata.id;
+
+                            // マスターリストを更新
+                            const updatedUsersData = loadUsers();
+                            const user = updatedUsersData.users.find(u => u.id === newUserId);
+                            if (user) {
+                                user.binId = binId;
+                                saveUsers(updatedUsersData);
+                                console.log(`Created binId for user ${name}: ${binId}`);
+                            }
+
+                            // ローカルキャッシュにも保存
+                            localStorage.setItem(`habitTracker_binId_${newUserId}`, binId);
+                        }
+                    } catch (e) {
+                        console.error('Failed to create bin for new user:', e);
+                    }
+                })();
             });
 
             // プランのラベルを取得
