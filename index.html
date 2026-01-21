@@ -2845,9 +2845,14 @@
 
         async function syncToCloud(data) {
             const binId = await getOrCreateBinId();
-            if (!binId) return;
+            if (!binId) {
+                console.error('syncToCloud: No binId available');
+                // デバッグ用アラート（問題特定後に削除）
+                alert('⚠️ 同期エラー: Bin IDが見つかりません。userId=' + userId);
+                return;
+            }
             try {
-                await fetch(`${JSONBIN_API}/${binId}`, {
+                const res = await fetch(`${JSONBIN_API}/${binId}`, {
                     method: 'PUT',
                     body: JSON.stringify(data),
                     headers: {
@@ -2855,8 +2860,20 @@
                         'X-Master-Key': JSONBIN_MASTER_KEY
                     }
                 });
-                console.log('Data synced to cloud');
-            } catch (e) { console.error('Cloud Sync Error:', e); }
+                if (res.ok) {
+                    console.log('Data synced to cloud successfully');
+                    // 成功時もアラート表示（確認用、問題特定後に削除）
+                    // alert('✅ 同期成功！');
+                } else {
+                    console.error('Cloud sync failed:', res.status, res.statusText);
+                    // デバッグ用アラート（問題特定後に削除）
+                    alert('⚠️ 同期エラー: ステータス ' + res.status + ' - ' + res.statusText);
+                }
+            } catch (e) {
+                console.error('Cloud Sync Error:', e);
+                // デバッグ用アラート（問題特定後に削除）
+                alert('⚠️ 同期エラー: ' + e.message);
+            }
         }
 
         async function fetchFromCloud() {
