@@ -2752,7 +2752,25 @@
     <script>
         // 設定
         const urlParams = new URLSearchParams(window.location.search);
-        const userId = urlParams.get('user') || 'default';
+
+        // ユーザーID取得：URLパラメータ → localStorage → 'default' の順で取得
+        let userId = urlParams.get('user');
+
+        if (userId) {
+            // URLパラメータがある場合、localStorageに保存（ホーム画面追加時用）
+            localStorage.setItem('habitTracker_lastUserId', userId);
+            console.log('Saved userId to localStorage:', userId);
+        } else {
+            // URLパラメータがない場合、localStorageから復元を試みる
+            userId = localStorage.getItem('habitTracker_lastUserId');
+            if (userId) {
+                console.log('Restored userId from localStorage:', userId);
+            } else {
+                userId = 'default';
+                console.log('Using default userId');
+            }
+        }
+
         const STORAGE_KEY = `habitTracker_${userId}`;
         const USERS_KEY = 'habitTracker_users';
         const COLORS = ['#00B4B4', '#FF9500', '#8B5CF6', '#EC4899', '#10B981', '#3B82F6', '#F59E0B', '#EF4444'];
