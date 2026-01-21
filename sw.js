@@ -1,4 +1,4 @@
-const CACHE_NAME = 'habit-tracker-v9.1';
+const CACHE_NAME = 'habit-tracker-v9.2';
 const urlsToCache = [
     './',
     './index.html',
@@ -31,8 +31,18 @@ self.addEventListener('activate', (event) => {
     );
 });
 
-// フェッチ (Network First)
+// フェッチ (Network First、ただしAPIリクエストはスキップ)
 self.addEventListener('fetch', (event) => {
+    // APIリクエスト（JSONBin.io等）はService Workerをスキップ
+    const url = new URL(event.request.url);
+    if (url.hostname.includes('jsonbin.io') ||
+        url.hostname.includes('generativelanguage.googleapis.com') ||
+        url.hostname.includes('api.') ||
+        event.request.method !== 'GET') {
+        // APIリクエストはそのままネットワークに流す（Service Workerはスキップ）
+        return;
+    }
+
     event.respondWith(
         fetch(event.request)
             .then((response) => {
