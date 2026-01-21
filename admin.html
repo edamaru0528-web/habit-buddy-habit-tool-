@@ -1155,7 +1155,7 @@
                     const start = user.startDate || today;
                     const elapsedDays = Math.max(0, Math.floor((new Date(today) - new Date(start)) / (1000 * 60 * 60 * 24)));
 
-                    // 継続日数（報告があった日のユニーク数）
+                    // 記録日数（報告があった日のユニーク数）
                     const reportedDays = new Set(userData.logs.map(l => l.timestamp.split('T')[0])).size;
 
                     // 開始日フォーマット
@@ -1190,7 +1190,7 @@
                     <div class="user-stats-container">
                         <div class="user-stat-row">開始日: <b style="color:${user.startDate ? 'var(--duo-blue)' : 'var(--text-muted)'}">${startDateFormatted}</b></div>
                         <div class="user-stat-row">経過日数: <b>${elapsedDays}日</b></div>
-                        <div class="user-stat-row">継続日数: <b>${reportedDays}日</b></div>
+                        <div class="user-stat-row">記録日数: <b>${reportedDays}日</b></div>
                     </div>
                 </div>
                 <div class="user-stats">
@@ -2251,13 +2251,9 @@
                 // 2日連続失敗カウント（フィルタリング済み習慣を使用）
                 const consecutiveFailures = calculateConsecutiveFailures(deduplicatedLogs, activeHabits, startDate, endDate);
 
-                // 習慣別の統計（記録がない日は0%として計算、一時停止を考慮）
+                // 習慣別の統計（達成割合の平均、記録がない日は0%として計算）
                 const habitStats = activeHabits.map(h => {
                     const habitLogs = deduplicatedLogs.filter(l => l.habit === h.name);
-                    const achievedDays = habitLogs.filter(l => {
-                        const goal = getGoalAtDate(h, l.timestamp.split('T')[0]);
-                        return l.value >= goal;
-                    }).length;
                     const recordedDays = habitLogs.length;
 
                     // この習慣の実際の対象日数を計算（習慣の開始日と一時停止を考慮）
@@ -2265,14 +2261,14 @@
                     const actualHabitStartD = habitStartD > startD ? habitStartD : startD;
 
                     // 一時停止日を考慮した終了日を計算
-                    let habitEndD = actualEndD;
+                    let habitEndD = new Date(actualEndD);
                     let pauseStatus = null;
 
                     if (h.isPaused && h.pausedDate) {
                         const pausedD = new Date(h.pausedDate);
                         if (pausedD <= actualEndD && pausedD >= actualHabitStartD) {
                             // レポート期間中に一時停止された
-                            habitEndD = pausedD;
+                            habitEndD = new Date(pausedD);
                             habitEndD.setDate(habitEndD.getDate() - 1); // 停止日の前日まで
                             pauseStatus = 'paused_during'; // 期間中に一時停止
                         } else if (pausedD < actualHabitStartD) {
@@ -2285,15 +2281,32 @@
                         ? 0
                         : Math.max(0, Math.floor((habitEndD - actualHabitStartD) / (1000 * 60 * 60 * 24)) + 1);
 
-                    // 達成率は「達成日数 / 習慣の対象日数」で計算（記録がない日は失敗扱い）
+                    // 達成割合の合計を計算（期間内の全日を対象）
+                    let totalPct = 0;
+                    for (let d = new Date(actualHabitStartD); d <= habitEndD; d.setDate(d.getDate() + 1)) {
+                        const year = d.getFullYear();
+                        const month = String(d.getMonth() + 1).padStart(2, '0');
+                        const day = String(d.getDate()).padStart(2, '0');
+                        const dk = `${year}-${month}-${day}`;
+
+                        // この日のログを検索
+                        const log = habitLogs.find(l => l.timestamp.split('T')[0] === dk);
+                        if (log) {
+                            const goal = getGoalAtDate(h, dk);
+                            const pct = goal > 0 ? Math.min(1, log.value / goal) : 0;
+                            totalPct += pct * 100;
+                        }
+                        // ログがない日は0%（totalPctに加算しない）
+                    }
+
+                    // 達成率は「達成割合の合計 / 対象日数」で計算
                     return {
                         name: h.name,
                         type: h.type,
                         color: h.color || '#0891B2',
                         totalDays: habitTotalDays,
                         recordedDays,
-                        achievedDays,
-                        rate: habitTotalDays > 0 ? Math.round((achievedDays / habitTotalDays) * 100) : 0,
+                        rate: habitTotalDays > 0 ? Math.round(totalPct / habitTotalDays) : 0,
                         isPaused: h.isPaused || false,
                         pauseStatus: pauseStatus // null, 'paused_during', 'paused_before'
                     };
@@ -2345,10 +2358,10 @@
                 return weeks;
             }
 
-            // 曜日別統計（期間ベースで計算、記録がない日は0%）
+            // 曜日別統計（期間ベースで計算、カレンダーと同じ日別達成率の平均）
             function calculateDayOfWeekStats(logs, habits, startDate, endDate) {
                 const days = ['日', '月', '火', '水', '木', '金', '土'];
-                const stats = days.map(() => ({ total: 0, achieved: 0 }));
+                const stats = days.map(() => ({ total: 0, count: 0 })); // total: 達成率の合計, count: 日数
 
                 // 今日の日付
                 const today = new Date();
@@ -2361,38 +2374,48 @@
 
                 // 期間内の全日を対象に計算
                 for (let d = new Date(startD); d <= actualEndD; d.setDate(d.getDate() + 1)) {
-                    const dk = d.toISOString().split('T')[0];
+                    // ローカル時間で日付を取得
+                    const year = d.getFullYear();
+                    const month = String(d.getMonth() + 1).padStart(2, '0');
+                    const day = String(d.getDate()).padStart(2, '0');
+                    const dk = `${year}-${month}-${day}`;
                     const dayIdx = d.getDay();
 
-                    // この日のすべての習慣について計算（開始日と一時停止を考慮）
+                    // この日の達成率を計算（カレンダーと同じ方法：各習慣の達成割合の平均）
+                    let dayTotalPct = 0; // 達成割合の合計
+                    let dayHabitCount = 0; // アクティブな習慣数
+
                     habits.forEach(habit => {
                         // 習慣の開始日より前はカウントしない
-                        if (habit.startDate && dk < habit.startDate) {
-                            return; // この習慣はまだ開始されていない
-                        }
+                        if (habit.startDate && dk < habit.startDate) return;
 
                         // 一時停止中の習慣は停止日以降カウントしない
-                        if (habit.isPaused && habit.pausedDate && dk >= habit.pausedDate) {
-                            return; // この習慣は一時停止中
-                        }
+                        if (habit.isPaused && habit.pausedDate && dk >= habit.pausedDate) return;
 
-                        stats[dayIdx].total++;
+                        dayHabitCount++;
 
                         // この日のログを検索
                         const log = logs.find(l => l.habit === habit.name && l.timestamp.split('T')[0] === dk);
                         if (log) {
                             const goal = getGoalAtDate(habit, dk);
-                            if (log.value >= goal) {
-                                stats[dayIdx].achieved++;
-                            }
+                            // 達成割合を計算（カレンダーと同じ、ゼロ除算防止）
+                            const pct = goal > 0 ? Math.min(1, log.value / goal) : 0;
+                            dayTotalPct += pct;
                         }
-                        // 記録がない場合は失敗扱い（achievedに加算しない）
+                        // ログがない場合は0%（dayTotalPctに加算しない）
                     });
+
+                    // この日の達成率を計算（カレンダーと同じ：各習慣の達成割合の平均）
+                    if (dayHabitCount > 0) {
+                        const dayRate = Math.floor((dayTotalPct / dayHabitCount) * 100);
+                        stats[dayIdx].total += dayRate;
+                        stats[dayIdx].count++;
+                    }
                 }
 
                 return stats.map((s, i) => ({
                     day: days[i],
-                    rate: s.total > 0 ? Math.round((s.achieved / s.total) * 100) : 0
+                    rate: s.count > 0 ? Math.round(s.total / s.count) : 0
                 }));
             }
 
@@ -2451,11 +2474,16 @@
                 const actualEndD = endD > today ? today : endD;
 
                 habits.forEach(habit => {
-                    const habitStats = days.map(() => ({ total: 0, achieved: 0 }));
+                    // 各曜日: total=達成割合の合計, count=日数
+                    const habitStats = days.map(() => ({ total: 0, count: 0 }));
 
                     // 期間内の全日を対象に計算
                     for (let d = new Date(startD); d <= actualEndD; d.setDate(d.getDate() + 1)) {
-                        const dk = d.toISOString().split('T')[0];
+                        // ローカル時間で日付を取得
+                        const year = d.getFullYear();
+                        const month = String(d.getMonth() + 1).padStart(2, '0');
+                        const day = String(d.getDate()).padStart(2, '0');
+                        const dk = `${year}-${month}-${day}`;
                         const dayIdx = d.getDay();
 
                         // 習慣の開始日より前はカウントしない
@@ -2464,22 +2492,23 @@
                         // 一時停止中はカウントしない
                         if (habit.isPaused && habit.pausedDate && dk >= habit.pausedDate) continue;
 
-                        habitStats[dayIdx].total++;
+                        habitStats[dayIdx].count++;
 
                         // この日のログを検索
                         const log = logs.find(l => l.habit === habit.name && l.timestamp.split('T')[0] === dk);
                         if (log) {
                             const goal = getGoalAtDate(habit, dk);
-                            if (log.value >= goal) {
-                                habitStats[dayIdx].achieved++;
-                            }
+                            // 達成割合を計算（ゼロ除算防止）
+                            const pct = goal > 0 ? Math.min(1, log.value / goal) : 0;
+                            habitStats[dayIdx].total += pct * 100;
                         }
+                        // ログがない場合は0%（totalに加算しない = 0%として含める）
                     }
 
-                    // 成功率を計算
+                    // 成功率を計算（達成割合の平均）
                     results[habit.name] = days.map((day, i) => ({
                         day: day,
-                        rate: habitStats[i].total > 0 ? Math.round((habitStats[i].achieved / habitStats[i].total) * 100) : 0
+                        rate: habitStats[i].count > 0 ? Math.round(habitStats[i].total / habitStats[i].count) : 0
                     }));
                 });
 
@@ -2634,11 +2663,9 @@ ${userName}さんへの2ヶ月目の振り返りメッセージを書いてく�
 
                 } else if (monthNum === 3) {
                     if (isFinalMonth) {
-                        // 3ヶ月コースの最終月
                         monthContext = `
 これは${courseLabel}の習慣化開始から3ヶ月目のレポートです。
-これが${courseLabel}の最終月です！ユーザーは見事にプログラムを完走しました！
-3ヶ月間の習慣化を達成したことを心から祝福してください。`;
+これが${courseLabel}の最終月です！ユーザーは見事にプログラムを完走しました！`;
 
                         summaryInstruction = `
 ${userName}さんへの3ヶ月目（最終月）の振り返りメッセージを書いてください。
@@ -2656,16 +2683,13 @@ ${userName}さんへの3ヶ月目（最終月）の振り返りメッセージ�
 
 【第3段落】（今後への期待）
 - 習慣が途切れることがあってもいつでもHabitBuddyに戻れること
-- 今後の人生での習慣継続への期待とエール
-- 卒業おめでとうの気持ち
+- 卒業おめでとうの気持ちと今後への期待
 
-親しみやすく温かい口調で、200〜300字程度で書いてください。`;
+親しみやすく温かい口調で、200字程度で書いてください。フェーズの説明は不要です。`;
                     } else {
-                        // 6ヶ月/9ヶ月コースの3ヶ月目（まだ中間地点）
                         monthContext = `
 これは${courseLabel}の習慣化開始から3ヶ月目のレポートです。
-ユーザーは${courseLabel}の${Math.round(3 / finalMonth * 100)}%を達成しました。
-まだ道半ばですが、3ヶ月継続は大きな節目です。`;
+ユーザーは${courseLabel}の${Math.round(3 / finalMonth * 100)}%を達成しました。`;
 
                         summaryInstruction = `
 ${userName}さんへの3ヶ月目の振り返りメッセージを書いてください。
@@ -2679,26 +2703,19 @@ ${userName}さんへの3ヶ月目の振り返りメッセージを書いてく�
 【第2段落】（実績の振り返り）
 - この期間に${uniqueDates.length}日間の記録を残したこと
 - 平均達成率${avgRate}%という結果を出せたこと
-- できない日があっても続けていること自体が素晴らしいというメッセージ
 
 【第3段落】（今後への期待）
 - 残り${finalMonth - 3}か月で習慣をさらに定着させていくこと
-- ゴールが見えてきたことへの励まし
-- 「一緒に頑張りましょう」
+- 「一緒に頑張りましょう」で締める
 
-親しみやすく温かい口調で、200〜300字程度で書いてください。`;
+親しみやすく温かい口調で、200字程度で書いてください。フェーズの説明は不要です。`;
                     }
 
                 } else if (monthNum >= 4 && monthNum <= 9) {
-                    // 4〜9ヶ月目のメッセージ（最終月判定付き）
-                    const totalDays = monthNum * 30;
-
                     if (isFinalMonth) {
-                        // コースの最終月（6ヶ月コースの6ヶ月目、9ヶ月コースの9ヶ月目）
                         monthContext = `
 これは${courseLabel}の習慣化開始から${monthNum}ヶ月目のレポートです。
-これが${courseLabel}の最終月です！ユーザーは見事に${monthNum}ヶ月間のプログラムを完走しました！
-${monthNum}ヶ月間の習慣化を達成したことを心から祝福してください。`;
+これが${courseLabel}の最終月です！ユーザーは見事に${monthNum}ヶ月間のプログラムを完走しました！`;
 
                         summaryInstruction = `
 ${userName}さんへの${monthNum}ヶ月目（最終月）の振り返りメッセージを書いてください。
@@ -2716,16 +2733,13 @@ ${userName}さんへの${monthNum}ヶ月目（最終月）の振り返りメッ�
 
 【第3段落】（今後への期待）
 - 習慣が途切れてもいつでもHabitBuddyに戻れること
-- 今後の人生での習慣継続への期待とエール
-- 卒業おめでとうの気持ち
+- 卒業おめでとうの気持ちと今後への期待
 
-親しみやすく温かい口調で、200〜300字程度で書いてください。`;
+親しみやすく温かい口調で、200字程度で書いてください。フェーズの説明は不要です。`;
                     } else {
-                        // まだ最終月ではない
                         monthContext = `
-これは${courseLabel}の習慣化開始から${monthNum}ヶ月目（${totalDays}日目まで）のレポートです。
-ユーザーは${courseLabel}の${Math.round(monthNum / finalMonth * 100)}%を達成しました。
-${monthNum}ヶ月という長い期間を乗り越えられるのは、本当に一握りの人だけです。`;
+これは${courseLabel}の習慣化開始から${monthNum}ヶ月目のレポートです。
+ユーザーは${courseLabel}の${Math.round(monthNum / finalMonth * 100)}%を達成しました。`;
 
                         summaryInstruction = `
 ${userName}さんへの${monthNum}ヶ月目の振り返りメッセージを書いてください。
@@ -2739,98 +2753,62 @@ ${userName}さんへの${monthNum}ヶ月目の振り返りメッセージを書�
 【第2段落】（実績の振り返り）
 - この期間に${uniqueDates.length}日間の記録を残したこと
 - 平均達成率${avgRate}%という結果を出せたこと
-- 習慣が生活の一部になってきていることへの言及
 
 【第3段落】（今後への期待）
 - 残り${finalMonth - monthNum}か月で習慣をさらに定着させていくこと
-- ゴールまでの継続への励まし
-- 「一緒に頑張りましょう」
+- 「一緒に頑張りましょう」で締める
 
-親しみやすく温かい口調で、200〜300字程度で書いてください。`;
+親しみやすく温かい口調で、200字程度で書いてください。フェーズの説明は不要です。`;
                     }
 
                 } else {
-                    // 月指定なしの場合
                     summaryInstruction = `
-${userName}さんへの${weekCount}週間の振り返りメッセージを書いてください。
+${userName}さんへの振り返りメッセージを書いてください。
 以下の3つの段落で構成してください：
 
 【第1段落】（挨拶と称賛）
-「${userName}さん、${weekCount}週間お疲れ様でした！」から始め、
+「${userName}さん、お疲れ様でした！」から始め、
 - 習慣化に取り組んできたことへの称賛
-- この期間を乗り越えてきたことの素晴らしさ
 
 【第2段落】（実績の振り返り）
 - この期間に${uniqueDates.length}日間の記録を残したこと
 - 平均達成率${avgRate}%という結果を出せたこと
-- データに基づいた具体的な振り返り
 
 【第3段落】（今後への期待）
-- 次の期間に向けた励ましと期待
-- 「一緒に頑張りましょう」
+- 今後への励ましと期待
+- 「一緒に頑張りましょう」で締める
 
-親しみやすく温かい口調で、200〜300字程度で書いてください。`;
+親しみやすく温かい口調で、200字程度で書いてください。`;
                 }
 
                 return `
-あなたは習慣化コーチとして、${userName}さんの習慣トラッキングデータを分析してください。
-温かみがありながらも具体的で実践的なフィードバックをお願いします。
+習慣化コーチとして${userName}さんのデータを分析してください。
 
-【重要な注意事項】
-- この習慣トラッカーには「リマインダー機能」「通知機能」「友達機能」「チャレンジ機能」などはありません
-- アプリの機能を提案する際は、実際に存在する機能のみ言及してください
-- 習慣改善のアドバイスは、アプリ外の一般的な方法を中心に提案してください
+【注意】このアプリにはリマインダー・通知・友達機能はありません。アプリ外の方法でアドバイスしてください。
 
 ${monthContext}
 
-【分析期間】
-${startDate} 〜 ${endDate}（約${weekCount}週間）
+【期間】${startDate}〜${endDate}（${weekCount}週間）
 
-【基本データ】
-- 総実行日数: ${uniqueDates.length}日
-- 習慣実行率: ${avgRate}%
-- 習慣数: ${habitStats.length}項目
+【データ】
+- 記録日数: ${uniqueDates.length}日、達成率: ${avgRate}%
+- 習慣別: ${habitDayTable}
+- 曜日別: ${dayOfWeekStats.map(d => `${d.day}:${d.rate}%`).join(', ')}
+- 2日連続失敗: ${Object.entries(consecutiveFailures).map(([n, c]) => `${n}:${c}回`).join(', ')}
 
-【習慣別データ】
-${habitDayTable}
-
-【曜日別達成率】
-${dayOfWeekStats.map(d => `${d.day}曜日: ${d.rate}%`).join('\n')}
-
-【2日連続失敗回数（各習慣）】
-${Object.entries(consecutiveFailures).map(([name, count]) => `${name}: ${count}回`).join('\n')}
-
-【週別サマリー】
-${Object.entries(weeklyData).map(([week, data]) => `${week}: 記録${data.total}件, 達成${data.achieved}件`).join('\n')}
-
-上記データを詳細に分析し、以下の形式で充実した回答をしてください。
+以下の形式で回答してください：
 
 ## 総論
 ${summaryInstruction}
 
 ## 得意な点
-データから読み取れる強みを5〜6点、箇条書きで詳細に分析してください。
-各項目は50〜80字程度で、具体的な数値と理由を含めてください。
-例：
-- 「土曜日・日曜日の成功率が◯%と高く、週末に集中して取り組めている」
-- 「◯◯の習慣は達成率◯%で、すでに生活の一部として定着しつつある」
-- 「最高連続達成日数が◯日と、一度波に乗ると継続力がある」
+データに基づく強みを3点、各30字程度で。必ず具体的な数値（◯%、◯日など）を含めてください。
 
 ## 苦手な点
-改善が必要な点を5〜6点、箇条書きで具体的に分析してください。
-各項目は50〜80字程度で、問題点と推測される原因を含めてください。
-例：
-- 「火曜日の成功率が◯%と低く、週初めの疲れが影響している可能性がある」
-- 「◯◯は2日連続失敗が◯回と多く、ハードルが高すぎる可能性がある」
-- 「習慣実行率が◯%で、まだ定着に至っていない習慣が多い」
+改善点を3点、各30字程度で。必ず具体的な数値（◯%、◯回など）を含めてください。
 
 ## 具体的アドバイス
-次の期間に向けた実践的で具体的なアドバイスを必ず5点、詳細に提案してください。
-各項目は80〜120字程度で、なぜそれが効果的かの理由も含めてください。
-【重要】このセクションは必ず記載してください。省略は不可です。
-例：
-- 「苦手な習慣の目標を見直す：『5分だけやる』『1つだけ』など、ハードルを極限まで下げて成功体験を増やすことで、自己効力感が高まります」
-- 「得意な日を活用する：週末は習慣が続きやすいため、平日にできなかった分を補う時間として活用してみましょう」
+実践的なアドバイスを3点、各50字程度で。
 `;
             }
 
@@ -3179,6 +3157,10 @@ ${monthNum}ヶ月も継続できている${userName}さんは、本当にすご�
                     Chart.register(ChartDataLabels);
                 }
 
+                // アニメーションを無効化（キャプチャ時にバーが表示されない問題を修正）
+                if (!chartConfig.options) chartConfig.options = {};
+                chartConfig.options.animation = false;
+
                 // タイトルとキャンバスを作成（デザイン改善 + 背景色追加）
                 container.style.backgroundColor = '#f0f4f8';
                 container.style.padding = '20px';
@@ -3194,8 +3176,8 @@ ${monthNum}ヶ月も継続できている${userName}さんは、本当にすご�
                 // Chart.jsがグローバルにロードされていることを前提
                 const chart = new Chart(ctx, chartConfig);
 
-                // レンダリングを待つ
-                await new Promise(resolve => setTimeout(resolve, 600));
+                // レンダリングを待つ（アニメーション無効化後も念のため待機）
+                await new Promise(resolve => setTimeout(resolve, 300));
 
                 // html2canvasでキャプチャ（薄い灰色背景）
                 const capturedCanvas = await html2canvas(container, {
@@ -3339,10 +3321,10 @@ ${monthNum}ヶ月も継続できている${userName}さんは、本当にすご�
                 if (currentReportMonth >= 1 && currentReportMonth <= 9) {
                     const startDay = (currentReportMonth - 1) * 30 + 1;
                     const endDay = currentReportMonth * 30;
-                    reportTitle = `${userName}さん_${currentReportMonth}ヶ月レポート`;
+                    reportTitle = `${userName}さん_${currentReportMonth}ヶ月習慣記録`;
                     periodDescription = `${startDay}日目〜${endDay}日目の実績（30日間）`;
                 } else {
-                    reportTitle = `${userName}さん_習慣化レポート`;
+                    reportTitle = `${userName}さん_習慣記録`;
                     periodDescription = `習慣化の実績`;
                 }
 
@@ -3356,15 +3338,8 @@ ${periodDescription}
 
 ---
 
+
 ## 📈 サマリー
-
-📅 **${reportData.uniqueDates.length}日** 総実行日数
-
-🔥 **${maxStreak}日** 最高連続日数
-
-📊 **${avgRate}%** 習慣実行率
-
----
 
 ${analysis.summary}
 
@@ -3381,28 +3356,6 @@ ${analysis.summary}
 【ここに習慣別達成率グラフを挿入】
 
 ---
-
-## | 習慣別の曜日成功率
-
-${(() => {
-                        const days = ['日', '月', '火', '水', '木', '金', '土'];
-                        const stats = reportData.habitDayOfWeekStats || {};
-                        const habitNames = Object.keys(stats);
-
-                        if (habitNames.length === 0) return '（データなし）';
-
-                        // テーブルヘッダー
-                        let table = '| 習慣 | ' + days.join(' | ') + ' |\n';
-                        table += '|------|' + days.map(() => '---').join('|') + '|\n';
-
-                        // 各習慣の行
-                        habitNames.forEach(name => {
-                            const rates = stats[name].map(d => d.rate + '%');
-                            table += `| ${name} | ${rates.join(' | ')} |\n`;
-                        });
-
-                        return table;
-                    })()}
 
 ---
 
@@ -3619,33 +3572,30 @@ ${analysis.advice}
             // 習慣別×曜日別成功率の表を生成
             async function generateHabitWeekdayTableImage(reportData) {
                 try {
-                    const { habitStats, logs, habits } = reportData;
+                    const { habitStats, habitDayOfWeekStats } = reportData;
                     const days = ['月', '火', '水', '木', '金', '土', '日'];
-                    const dayIndexMap = { 1: 0, 2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 0: 6 }; // 月曜始まり
+                    const dayIndexMap = { '月': 0, '火': 1, '水': 2, '木': 3, '金': 4, '土': 5, '日': 6 };
 
-                    // レポート期間中に記録がある習慣だけ
+                    // レポート期間中に記録がある習慣
                     const activeHabitNames = habitStats.map(h => h.name);
-                    const activeHabits = habits.filter(h => activeHabitNames.includes(h.name));
 
-                    // 習慣ごと×曜日ごとの成功率を計算
-                    const tableData = activeHabits.map(habit => {
-                        const habitLogs = logs.filter(l => l.habit === habit.name);
-                        const dayStats = days.map(() => ({ total: 0, achieved: 0 }));
+                    // 習慣ごと×曜日ごとの成功率は既に計算済みのhabitDayOfWeekStatsを使用
+                    const tableData = activeHabitNames.map(habitName => {
+                        const habitData = habitDayOfWeekStats[habitName];
+                        if (!habitData) {
+                            return {
+                                name: habitName,
+                                rates: days.map(() => '-')
+                            };
+                        }
 
-                        habitLogs.forEach(log => {
-                            const logDate = new Date(log.timestamp);
-                            const dayIdx = dayIndexMap[logDate.getDay()];
-                            dayStats[dayIdx].total++;
-
-                            const goal = getGoalAtDate(habit, log.timestamp.split('T')[0]);
-                            if (log.value >= goal) {
-                                dayStats[dayIdx].achieved++;
-                            }
-                        });
-
+                        // 月曜始まりに並べ替え
                         return {
-                            name: habit.name,
-                            rates: dayStats.map(d => d.total > 0 ? Math.round((d.achieved / d.total) * 100) : '-')
+                            name: habitName,
+                            rates: days.map(dayName => {
+                                const dayData = habitData.find(d => d.day === dayName);
+                                return dayData && dayData.rate !== undefined ? dayData.rate : '-';
+                            })
                         };
                     });
 

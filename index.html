@@ -3850,12 +3850,23 @@
                         `;
                     }).join('');
 
+                    // 最新のログ時刻を取得
+                    const allLogsForDay = Object.values(dayData.habits).flatMap(h => h.logs);
+                    const latestLog = allLogsForDay.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))[0];
+                    const latestTime = latestLog ? (() => {
+                        const d = new Date(latestLog.timestamp);
+                        return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+                    })() : '';
+
                     // Day Card HTML
                     html += `
                         <div class="history-day-card">
                             <div class="day-title-area" onclick="this.parentElement.classList.toggle('active')">
                                 <div class="day-title-text">${dayData.label}</div>
-                                <div class="day-dropdown-icon">▼</div>
+                                <div style="display:flex; align-items:center; gap:8px;">
+                                    ${latestTime ? `<span style="font-size:0.75rem; color:var(--text-muted);">🕐 ${latestTime}</span>` : ''}
+                                    <div class="day-dropdown-icon">▼</div>
+                                </div>
                             </div>
                             <div class="day-habit-list">
                                 ${habitGroupsHtml}
@@ -4251,7 +4262,11 @@
 
             // 月初から計算終了日（当日）までを対象に計算
             for (let d = new Date(firstDay); d <= calcEndDay; d.setDate(d.getDate() + 1)) {
-                const dk = d.toISOString().split('T')[0];
+                // ローカル時間で日付を取得（カレンダーと同じ形式）
+                const year = d.getFullYear();
+                const month = String(d.getMonth() + 1).padStart(2, '0');
+                const dayNum = String(d.getDate()).padStart(2, '0');
+                const dk = `${year}-${month}-${dayNum}`;
                 const dayOfWeek = d.getDay();
 
                 // カレンダーに表示される達成率を取得（getDailyProgressを使用）
@@ -4431,19 +4446,26 @@
             });
             if (currentStreak > maxStreak) maxStreak = currentStreak;
 
-            // 3. 習慣実行率（記録がある日の達成率の平均）
+            // 3. 習慣実行率（月初から今日までの全日の達成率の平均）
+            // カレンダー表示の合計 ÷ 全日数
             let executionRate = 0;
             let totalAchievement = 0;
-            const today = new Date();
-            let targetDays = monthDatesWithActivity.length;
 
-            // 記録がある日の達成率を合計
-            monthDatesWithActivity.forEach(dk => {
+            // 月初から計算終了日までの全日数を対象に計算
+            let allDaysCount = 0;
+            for (let d = new Date(firstDay); d <= calcEndDay; d.setDate(d.getDate() + 1)) {
+                // ローカル時間で日付を取得（カレンダーと同じ形式）
+                const year = d.getFullYear();
+                const month = String(d.getMonth() + 1).padStart(2, '0');
+                const day = String(d.getDate()).padStart(2, '0');
+                const dk = `${year}-${month}-${day}`;
+                // カレンダーと同じ値を使用
                 totalAchievement += getDailyProgress(data, dk);
-            });
+                allDaysCount++;
+            }
 
-            if (targetDays > 0) {
-                executionRate = Math.round(totalAchievement / targetDays);
+            if (allDaysCount > 0) {
+                executionRate = Math.round(totalAchievement / allDaysCount);
                 if (executionRate > 100) executionRate = 100;
             }
 
@@ -4458,7 +4480,7 @@
                 maxStreak: maxStreak,
                 executionRate: executionRate,
                 totalAchievement: totalAchievement,
-                targetDays: targetDays,
+                targetDays: allDaysCount,
                 datesWithActivity: monthDatesWithActivity,
                 monthKey: monthKey,
                 analysisYear: analysisYear,
@@ -4515,7 +4537,7 @@
                 icon.textContent = '📊';
                 value.textContent = stats.executionRate + '%';
                 title.textContent = '習慣実行率';
-                desc.innerHTML = `${monthName}の記録日${stats.targetDays}日間の<br>平均達成率`;
+                desc.innerHTML = `${monthName}の${stats.targetDays}日間の<br>平均達成率`;
 
                 // 計算式を表示
                 list.innerHTML = `
@@ -4523,7 +4545,7 @@
                         <div style="font-size:0.8rem; color:var(--text-muted); margin-bottom:12px; text-align:center;">計算式</div>
                         <div style="background:var(--bg-card); border-radius:12px; padding:16px; text-align:center;">
                             <div style="font-size:0.9rem; color:var(--text-muted); margin-bottom:8px;">
-                                各日の達成率の合計 ÷ 記録日数
+                                各日の達成率の合計 ÷ 全日数
                             </div>
                             <div style="font-size:1.1rem; font-weight:700;">
                                 ${stats.totalAchievement}% ÷ ${stats.targetDays}日
