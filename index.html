@@ -2806,20 +2806,30 @@
             return null;
         }
 
-        // Bin IDの取得または作成
+        // Bin IDの取得または作成（強化版）
         async function getOrCreateBinId() {
             if (userId === 'default') return null;
 
-            // ローカルキャッシュをチェック
             const cacheKey = `habitTracker_binId_${userId}`;
-            let cachedId = localStorage.getItem(cacheKey);
 
-            // キャッシュがなければマスターリストから取得を試みる
-            if (!cachedId) {
-                cachedId = await fetchUserBinIdFromMaster();
+            // 常にマスターリストから最新のBin IDを取得を試みる（キャッシュより優先）
+            console.log('getOrCreateBinId: Fetching from master list for userId:', userId);
+            let binId = await fetchUserBinIdFromMaster();
+
+            // マスターリストから取得できた場合
+            if (binId) {
+                console.log('getOrCreateBinId: Got binId from master:', binId);
+                return binId;
             }
 
-            if (cachedId) return cachedId;
+            // マスターリストから取得できなかった場合、ローカルキャッシュをチェック
+            let cachedId = localStorage.getItem(cacheKey);
+            if (cachedId) {
+                console.log('getOrCreateBinId: Using cached binId:', cachedId);
+                return cachedId;
+            }
+
+            console.log('getOrCreateBinId: No binId found, creating new bin');
 
             // 新規Bin作成（管理者画面で作成されたユーザーでない場合のみ）
             try {
@@ -2834,12 +2844,16 @@
                 });
                 if (res.ok) {
                     const data = await res.json();
-                    const binId = data.metadata.id;
-                    localStorage.setItem(cacheKey, binId);
-                    console.log('Created new bin:', binId);
-                    return binId;
+                    const newBinId = data.metadata.id;
+                    localStorage.setItem(cacheKey, newBinId);
+                    console.log('getOrCreateBinId: Created new bin:', newBinId);
+                    return newBinId;
+                } else {
+                    console.error('getOrCreateBinId: Failed to create bin:', res.status);
                 }
-            } catch (e) { console.error('Create bin error:', e); }
+            } catch (e) {
+                console.error('getOrCreateBinId: Create bin error:', e);
+            }
             return null;
         }
 
