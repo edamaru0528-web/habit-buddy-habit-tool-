@@ -872,6 +872,13 @@
             color: var(--text-muted);
         }
 
+        .habit-streak {
+            font-size: clamp(0.8rem, 3.5vw, 1rem);
+            font-weight: 700;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+
         .habit-actions {
             display: flex;
             gap: 8px;
@@ -1406,12 +1413,11 @@
 
         /* カレンダー */
         .calendar-card {
-            background: linear-gradient(145deg, var(--bg-card), rgba(255, 255, 255, 0.98));
+            background: transparent;
             border-radius: 24px;
-            padding: 24px 12px;
-            /* 横余白を調整 */
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08), 0 4px 8px rgba(0, 0, 0, 0.04);
-            border: 2px solid var(--border);
+            padding: 0;
+            box-shadow: none;
+            border: none;
             overflow: hidden;
             box-sizing: border-box;
         }
@@ -1424,11 +1430,11 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            background: var(--bg);
-            padding: 8px 12px;
+            background: transparent;
+            padding: 4px 8px;
             border-radius: 20px;
-            border: 1px solid var(--border);
-            margin-bottom: 24px;
+            border: none;
+            margin-bottom: 16px;
         }
 
         .calendar-nav h3 {
@@ -1481,9 +1487,9 @@
         .calendar {
             display: grid;
             grid-template-columns: repeat(7, minmax(0, 1fr));
-            gap: 3px;
-            /* ギャップを狭めに */
-            margin-bottom: 16px;
+            gap: 4px;
+            /* ギャップを少し広げる */
+            margin-bottom: 12px;
             width: 100%;
             max-width: 100%;
             box-sizing: border-box;
@@ -3229,9 +3235,9 @@
                             <span class="ring-icon" style="color:${isPaused ? '#ccc' : color}">${status.isAchieved && !isPaused ? '✓' : ''}</span>
                         </div>
                         <div class="habit-info" onclick="openHabitEdit('${h.id}')" style="cursor:pointer">
-                            <div class="habit-name" style="color:${isPaused ? 'var(--text-muted)' : 'var(--text)'}; display:flex; align-items:center; gap:8px;">
+                            <div class="habit-name" style="color:${isPaused ? 'var(--text-muted)' : 'var(--text)'}; display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
                                 <span>${h.name}</span>
-                                ${!isPaused && streak > 0 ? `<span style="font-size:1rem; font-weight:700; color:${getStreakColor(streak)};">🔥${streak}日</span>` : ''}
+                                ${!isPaused && streak > 0 ? `<span class="habit-streak" style="color:${getStreakColor(streak)};">🔥${streak}日</span>` : ''}
                             </div>
                             <div class="habit-meta">
                                 ${isPaused ? '記録停止中' : `${status.current}/${status.goal}${unit} • ${Math.round(status.pct * 100)}%`}
