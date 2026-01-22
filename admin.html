@@ -1203,7 +1203,7 @@
                         <div class="dropdown-item" onclick="setUserPlan('${user.id}', '${user.name}')">📋 プラン変更</div>
                         <div class="dropdown-item" onclick="openRemoteEdit('${user.id}')">✏️ 編集</div>
                         <div class="dropdown-item" onclick="window.open('${localUrl}', '_blank')">👁️ 表示</div>
-                        <div class="dropdown-item" onclick="showShareOptions('${publicUrl}', '${user.name}')">🔗 共有リンク発行
+                        <div class="dropdown-item" onclick="showShareOptions('${publicUrl}', '${user.name}', '${user.id}')">🔗 共有リンク発行
                         </div>
                         <div class="dropdown-item delete" onclick="confirmDeleteUser('${user.id}', '${user.name}')">🗑️
                             削除</div>
@@ -1237,7 +1237,7 @@
                 }
             };
 
-            window.showShareOptions = (url, name) => {
+            window.showShareOptions = (url, name, userId) => {
                 // 公開URLが設定されているかチェック
                 const savedBaseUrl = localStorage.getItem('habitTracker_baseUrl');
                 if (!savedBaseUrl || url.startsWith('file://')) {
@@ -1255,14 +1255,32 @@
 
                 linkTitle.textContent = `${name}さんの共有リンク`;
                 linkUrlDisplay.value = url;
+
+                // ユーザーIDを保存（コピー時に使用）
+                linkModal.dataset.userId = userId;
+                linkModal.dataset.userName = name;
+
                 linkModal.classList.add('show');
             };
 
             window.copyLinkUrl = () => {
+                const linkModal = document.getElementById('linkModal');
                 const linkUrlDisplay = document.getElementById('linkUrlDisplay');
-                linkUrlDisplay.select();
-                document.execCommand('copy');
-                showToast('リンクをコピーしました');
+                const userId = linkModal.dataset.userId;
+                const userName = linkModal.dataset.userName;
+
+                // リンクとユーザーIDを両方含めてコピー
+                const copyText = `【${userName}さんの習慣トラッカー】
+
+📱 リンク：
+${linkUrlDisplay.value}
+
+🔑 ユーザーID：${userId}
+
+※ホーム画面に追加後、初回起動時にユーザーIDを入力してください`;
+
+                navigator.clipboard.writeText(copyText);
+                showToast('リンクとユーザーIDをコピーしました');
             };
 
             window.closeLinkModal = () => {

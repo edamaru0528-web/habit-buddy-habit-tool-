@@ -2793,21 +2793,7 @@
         // PWAモードでユーザー選択が必要な場合のダイアログ
         async function showUserSelectionDialog() {
             try {
-                // クラウドからユーザーリストを取得
-                const res = await fetch(`${JSONBIN_API}/${USERS_BIN_ID}/latest`, {
-                    headers: { 'X-Master-Key': JSONBIN_MASTER_KEY }
-                });
-                if (!res.ok) return;
-
-                const response = await res.json();
-                if (!response.record || !response.record.users || response.record.users.length === 0) {
-                    alert('ユーザーが見つかりません。管理者にお問い合わせください。');
-                    return;
-                }
-
-                const users = response.record.users;
-
-                // ユーザー選択ダイアログを作成
+                // ユーザーID入力ダイアログを作成（名前リストは表示しない）
                 const dialog = document.createElement('div');
                 dialog.id = 'userSelectionDialog';
                 dialog.style.cssText = `
@@ -2817,41 +2803,65 @@
                     padding: 20px;
                 `;
 
-                let userOptions = users.map(u =>
-                    `<button onclick="selectUser('${u.id}')" style="
-                        display: block; width: 100%; padding: 16px; margin: 8px 0;
-                        background: linear-gradient(135deg, #0891B2, #7C3AED);
-                        color: white; border: none; border-radius: 12px;
-                        font-size: 1.1rem; font-weight: 700; cursor: pointer;
-                    ">${u.name}</button>`
-                ).join('');
-
                 dialog.innerHTML = `
                     <div style="
                         background: white; padding: 24px; border-radius: 20px;
-                        max-width: 350px; width: 100%; max-height: 80vh; overflow-y: auto;
+                        max-width: 350px; width: 100%;
                     ">
                         <h2 style="margin: 0 0 16px 0; text-align: center; color: #0F172A;">
-                            👋 ユーザーを選択
+                            🔑 ユーザーIDを入力
                         </h2>
                         <p style="margin: 0 0 16px 0; text-align: center; color: #64748B; font-size: 0.9rem;">
-                            あなたの名前を選んでください
+                            管理者から送られたユーザーIDを入力してください
                         </p>
-                        ${userOptions}
+                        <input type="text" id="userIdInput" placeholder="ユーザーID（例: abc123）" style="
+                            width: 100%; padding: 14px 16px; margin: 0 0 16px 0;
+                            border: 2px solid #E2E8F0; border-radius: 12px;
+                            font-size: 1rem; box-sizing: border-box;
+                            text-align: center; font-weight: 600;
+                        " autocomplete="off" autocapitalize="none">
+                        <button onclick="submitUserId()" style="
+                            display: block; width: 100%; padding: 16px;
+                            background: linear-gradient(135deg, #0891B2, #7C3AED);
+                            color: white; border: none; border-radius: 12px;
+                            font-size: 1.1rem; font-weight: 700; cursor: pointer;
+                        ">ログイン</button>
+                        <p style="margin: 16px 0 0 0; text-align: center; color: #94A3B8; font-size: 0.75rem;">
+                            ユーザーIDがわからない場合は<br>管理者にお問い合わせください
+                        </p>
                     </div>
                 `;
                 document.body.appendChild(dialog);
+
+                // 入力フィールドにフォーカス
+                setTimeout(() => {
+                    document.getElementById('userIdInput').focus();
+                }, 100);
             } catch (e) {
-                console.error('Failed to fetch users for selection:', e);
+                console.error('Failed to show user ID input dialog:', e);
             }
         }
+        // ユーザーID入力時の処理
+        window.submitUserId = function () {
+            const input = document.getElementById('userIdInput');
+            const enteredId = input.value.trim();
 
-        // ユーザー選択時の処理
-        window.selectUser = function (selectedUserId) {
-            localStorage.setItem('habitTracker_lastUserId', selectedUserId);
-            // ページをリロードして選択したユーザーで開き直す
+            if (!enteredId) {
+                alert('ユーザーIDを入力してください');
+                return;
+            }
+
+            localStorage.setItem('habitTracker_lastUserId', enteredId);
+            // ページをリロードして入力したユーザーで開き直す
             window.location.reload();
         };
+
+        // Enterキーでも送信可能に
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' && document.getElementById('userIdInput')) {
+                submitUserId();
+            }
+        });
 
         // 共通データ管理
         function loadData() {
