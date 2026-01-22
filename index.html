@@ -2753,8 +2753,13 @@
         // 設定
         const urlParams = new URLSearchParams(window.location.search);
 
-        // ユーザーID取得：URLパラメータ → localStorage → 'default' の順で取得
+        // PWAモード検出（ホーム画面から開いた場合）
+        const isPWA = window.matchMedia('(display-mode: standalone)').matches ||
+            window.navigator.standalone === true;
+
+        // ユーザーID取得：URLパラメータ → localStorage → ユーザー選択 の順で取得
         let userId = urlParams.get('user');
+        let needsUserSelection = false;
 
         if (userId) {
             // URLパラメータがある場合、localStorageに保存（ホーム画面追加時用）
@@ -2766,6 +2771,11 @@
             if (userId) {
                 console.log('Restored userId from localStorage:', userId);
             } else {
+                // PWAモードでユーザーIDが見つからない場合
+                if (isPWA) {
+                    console.log('PWA mode: No userId found, will prompt for selection');
+                    needsUserSelection = true;
+                }
                 userId = 'default';
                 console.log('Using default userId');
             }
@@ -2779,6 +2789,69 @@
         const JSONBIN_MASTER_KEY = '$2a$10$9gCdL3y87QxebgxH9Ea1eOT93VPPLvVcj/czCK0PaWCL3WLhOutcC';
         const JSONBIN_API = 'https://api.jsonbin.io/v3/b';
         const USERS_BIN_ID = '69678ac9d0ea881f406b5bc5'; // マスターユーザーリスト用
+
+        // PWAモードでユーザー選択が必要な場合のダイアログ
+        async function showUserSelectionDialog() {
+            try {
+                // クラウドからユーザーリストを取得
+                const res = await fetch(`${JSONBIN_API}/${USERS_BIN_ID}/latest`, {
+                    headers: { 'X-Master-Key': JSONBIN_MASTER_KEY }
+                });
+                if (!res.ok) return;
+
+                const response = await res.json();
+                if (!response.record || !response.record.users || response.record.users.length === 0) {
+                    alert('ユーザーが見つかりません。管理者にお問い合わせください。');
+                    return;
+                }
+
+                const users = response.record.users;
+
+                // ユーザー選択ダイアログを作成
+                const dialog = document.createElement('div');
+                dialog.id = 'userSelectionDialog';
+                dialog.style.cssText = `
+                    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+                    background: rgba(0,0,0,0.8); z-index: 10000;
+                    display: flex; align-items: center; justify-content: center;
+                    padding: 20px;
+                `;
+
+                let userOptions = users.map(u =>
+                    `<button onclick="selectUser('${u.id}')" style="
+                        display: block; width: 100%; padding: 16px; margin: 8px 0;
+                        background: linear-gradient(135deg, #0891B2, #7C3AED);
+                        color: white; border: none; border-radius: 12px;
+                        font-size: 1.1rem; font-weight: 700; cursor: pointer;
+                    ">${u.name}</button>`
+                ).join('');
+
+                dialog.innerHTML = `
+                    <div style="
+                        background: white; padding: 24px; border-radius: 20px;
+                        max-width: 350px; width: 100%; max-height: 80vh; overflow-y: auto;
+                    ">
+                        <h2 style="margin: 0 0 16px 0; text-align: center; color: #0F172A;">
+                            👋 ユーザーを選択
+                        </h2>
+                        <p style="margin: 0 0 16px 0; text-align: center; color: #64748B; font-size: 0.9rem;">
+                            あなたの名前を選んでください
+                        </p>
+                        ${userOptions}
+                    </div>
+                `;
+                document.body.appendChild(dialog);
+            } catch (e) {
+                console.error('Failed to fetch users for selection:', e);
+            }
+        }
+
+        // ユーザー選択時の処理
+        window.selectUser = function (selectedUserId) {
+            localStorage.setItem('habitTracker_lastUserId', selectedUserId);
+            // ページをリロードして選択したユーザーで開き直す
+            window.location.reload();
+        };
 
         // 共通データ管理
         function loadData() {
@@ -4653,6 +4726,12 @@
 
         // 初期化（クラウドデータを待ってから表示）
         async function init() {
+            // PWAモードでユーザーIDが見つからない場合、ユーザー選択ダイアログを表示
+            if (needsUserSelection) {
+                await showUserSelectionDialog();
+                return; // ダイアログで選択後にリロードされる
+            }
+
             // まずUIセットアップ（ユーザー名取得）
             await setupUI();
             // クラウドからデータ取得を試みる
