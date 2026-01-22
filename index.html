@@ -859,16 +859,15 @@
         }
 
         .habit-name {
-            font-size: 1.2rem;
+            font-size: clamp(1rem, 4vw, 1.2rem);
             font-weight: 900;
             margin-bottom: 2px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
+            word-break: break-word;
+            line-height: 1.3;
         }
 
         .habit-meta {
-            font-size: 0.85rem;
+            font-size: clamp(0.75rem, 3vw, 0.85rem);
             font-weight: 700;
             color: var(--text-muted);
         }
@@ -1494,7 +1493,7 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 0.75rem;
+            font-size: clamp(0.65rem, 2.5vw, 0.9rem);
             font-weight: 800;
             color: var(--text-muted);
             padding: 6px 0;
@@ -1545,25 +1544,25 @@
 
         .calendar-day .date-num {
             position: absolute;
-            top: 4px;
-            left: 6px;
-            font-size: 0.75rem;
+            top: 3px;
+            left: 4px;
+            font-size: clamp(0.6rem, 2.2vw, 0.9rem);
             font-weight: 700;
-            opacity: 0.8;
+            opacity: 0.9;
             line-height: 1;
         }
 
         .calendar-day .pct-stat {
-            font-size: 1rem;
+            font-size: clamp(0.7rem, 2.8vw, 1.1rem);
             font-weight: 700;
             line-height: 1;
             z-index: 1;
-            margin-top: 14px;
+            margin-top: clamp(8px, 2vw, 14px);
             /* 配置バランスを下へ調整 */
         }
 
         .calendar-day .pct-stat small {
-            font-size: 0.7rem;
+            font-size: clamp(0.5rem, 2vw, 0.8rem);
             margin-left: 1px;
         }
 
@@ -2856,9 +2855,11 @@
             window.location.reload();
         };
 
-        // Enterキーでも送信可能に
+        // Enterキーでも送信可能に（ユーザーID入力フィールドにフォーカスがある時のみ）
         document.addEventListener('keydown', function (e) {
-            if (e.key === 'Enter' && document.getElementById('userIdInput')) {
+            const userIdInput = document.getElementById('userIdInput');
+            if (e.key === 'Enter' && userIdInput && document.activeElement === userIdInput) {
+                e.preventDefault();
                 submitUserId();
             }
         });
@@ -2962,8 +2963,6 @@
             const binId = await getOrCreateBinId();
             if (!binId) {
                 console.error('syncToCloud: No binId available');
-                // デバッグ用アラート（問題特定後に削除）
-                alert('⚠️ 同期エラー: Bin IDが見つかりません。userId=' + userId);
                 return;
             }
             try {
@@ -2977,17 +2976,11 @@
                 });
                 if (res.ok) {
                     console.log('Data synced to cloud successfully');
-                    // 成功時もアラート表示（確認用、問題特定後に削除）
-                    // alert('✅ 同期成功！');
                 } else {
                     console.error('Cloud sync failed:', res.status, res.statusText);
-                    // デバッグ用アラート（問題特定後に削除）
-                    alert('⚠️ 同期エラー: ステータス ' + res.status + ' - ' + res.statusText);
                 }
             } catch (e) {
                 console.error('Cloud Sync Error:', e);
-                // デバッグ用アラート（問題特定後に削除）
-                alert('⚠️ 同期エラー: ' + e.message);
             }
         }
 
